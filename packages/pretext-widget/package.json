@@ -1,0 +1,33 @@
+{
+  "name": "@myst-theme/pretext-widget",
+  "version": "1.3.1",
+  "description": "NodeRenderer for pretext-widget directive — draggable-figure text reflow in MyST articles",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build:esm": "tsc",
+    "build": "npm-run-all -l clean -p build:esm"
+  },
+  "dependencies": {
+    "@myst-theme/providers": "^1.3.1",
+    "classnames": "^2.3.2"
+  },
+  "peerDependencies": {
+    "@types/react": "^16.8 || ^17.0 || ^18.0 || ^19.0",
+    "@types/react-dom": "^16.8 || ^17.0 || ^18.0 || ^19.0",
+    "react": "^16.8 || ^17.0 || ^18.0 || ^19.0",
+    "react-dom": "^16.8 || ^17.0 || ^18.0 || ^19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

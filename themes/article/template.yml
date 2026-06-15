@@ -73,11 +73,10 @@ options:
     id: style
     description: Local path to a CSS file
 build:
-  install: npm ci --ignore-scripts
-  start: npm run start
+  install: npm install --production --ignore-scripts --legacy-peer-deps
+  start: node ./node_modules/@remix-run/serve/dist/cli.js ./build
 files:
   - server.js
   - package.json
-  - package-lock.json
   - public/**/*
   - build/**/*
