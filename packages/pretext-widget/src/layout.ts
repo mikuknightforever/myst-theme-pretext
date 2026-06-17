@@ -37,34 +37,61 @@ function measureWord(word: string, style: TextStyle, ctx: CanvasRenderingContext
 }
 
 /**
- * Return the horizontal segments available on a line at `lineCenterY`,
- * avoiding the obstacle rect.
+ * Return the horizontal segments available for a line spanning [lineTop, lineBottom],
+ * avoiding all obstacle rects. Merges overlapping blocked intervals before
+ * computing the free gaps.
  */
 function getLineSegments(
-  lineCenterY: number,
-  obstacle: ObstacleRect,
+  lineTop: number,
+  lineBottom: number,
+  obstacles: ObstacleRect[],
   leftEdge: number,
   rightEdge: number,
   gap = 20,
 ): Array<[number, number]> {
-  const hits = lineCenterY >= obstacle.top && lineCenterY <= obstacle.bottom;
-  if (!hits) return [[leftEdge, rightEdge]];
+  // Collect obstacles that overlap ANY part of this line's vertical span
+  const active = obstacles.filter(
+    (o) => lineBottom > o.top && lineTop < o.bottom,
+  );
+  if (active.length === 0) return [[leftEdge, rightEdge]];
 
+  // Build blocked intervals with gap padding, sorted by start
+  const blocked: Array<[number, number]> = active
+    .map((o): [number, number] => [o.left - gap, o.right + gap])
+    .sort((a, b) => a[0] - b[0]);
+
+  // Merge overlapping intervals
+  const merged: Array<[number, number]> = [];
+  for (const interval of blocked) {
+    const last = merged[merged.length - 1];
+    if (!last || interval[0] > last[1]) {
+      merged.push([interval[0], interval[1]]);
+    } else {
+      last[1] = Math.max(last[1], interval[1]);
+    }
+  }
+
+  // Free segments are the gaps between merged blocked intervals
   const segments: Array<[number, number]> = [];
-  if (obstacle.left - gap > leftEdge) segments.push([leftEdge, obstacle.left - gap]);
-  if (obstacle.right + gap < rightEdge) segments.push([obstacle.right + gap, rightEdge]);
+  let cursor = leftEdge;
+  for (const [blockStart, blockEnd] of merged) {
+    if (blockStart > cursor) segments.push([cursor, blockStart]);
+    cursor = Math.max(cursor, blockEnd);
+  }
+  if (cursor < rightEdge) segments.push([cursor, rightEdge]);
+
   return segments.filter(([s, e]) => e - s > 60);
 }
 
 /**
  * Layout an array of paragraph text strings into positioned word spans,
- * reflowing around the given obstacle rect.
+ * reflowing around all obstacle rects.
  *
  * Returns the array of WordSpan objects to render.
  */
 export function layoutParagraphs(
   paragraphs: string[],
-  obstacle: ObstacleRect,
+  obstacles: ObstacleRect[],
   containerWidth: number,
   startY: number,
   style: TextStyle,
@@ -85,8 +112,7 @@ export function layoutParagraphs(
     let wi = 0;
 
     while (wi < words.length) {
-      const lineCenterY = y + style.lineHeight / 2;
-      const segments = getLineSegments(lineCenterY, obstacle, 0, containerWidth);
+      const segments = getLineSegments(y, y + style.lineHeight, obstacles, 0, containerWidth);
 
       for (const [segStart, segEnd] of segments) {
         let x = segStart;
@@ -130,7 +156,7 @@ export function collectParagraphs(mdast: any): string[] {
     if (node.type === 'paragraph') {
       const text = extractTextFromNode(node).trim();
       if (text) results.push(text);
-      return; // don't recurse into paragraph children further
+      return;
     }
     if (node.children) {
       for (const child of node.children as any[]) walk(child);
@@ -141,23 +167,24 @@ export function collectParagraphs(mdast: any): string[] {
 }
 
 /**
- * Walk an MDAST tree and find the first node whose `class` attribute
+ * Walk an MDAST tree and return ALL nodes whose `class` attribute
  * contains `selector` (e.g. 'pretext-draggable').
  */
-export function findDraggableNode(mdast: any, selector: string): any | null {
-  function walk(node: any): any | null {
-    if (!node) return null;
+export function findAllDraggableNodes(mdast: any, selector: string): any[] {
+  const results: any[] = [];
+  function walk(node: any) {
+    if (!node) return;
     const cls: string = node.class ?? node.className ?? '';
-    if (cls.split(/\s+/).includes(selector)) return node;
-    if (node.children) {
-      for (const child of node.children as any[]) {
-        const found = walk(child);
-        if (found) return found;
-      }
+    if (cls.split(/\s+/).includes(selector)) {
+      results.push(node);
+      return; // don't recurse into a matched node
     }
-    return null;
+    if (node.children) {
+      for (const child of node.children as any[]) walk(child);
+    }
   }
-  return walk(mdast);
+  walk(mdast);
+  return results;
 }
 
 /**
