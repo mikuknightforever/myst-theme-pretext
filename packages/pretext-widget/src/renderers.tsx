@@ -3,12 +3,12 @@ import { useReferences } from '@myst-theme/providers';
 import { MyST } from 'myst-to-react';
 import type { PretextWidget } from './types.js';
 import {
-  collectParagraphs,
+  collectBlocks,
   findAllDraggableNodes,
-  layoutParagraphs,
+  layoutBlocks,
   DEFAULT_TEXT_STYLE,
 } from './layout.js';
-import type { WordSpan, ObstacleRect } from './layout.js';
+import type { WordSpan, ObstacleRect, ContentBlock, PlacedRichBlock } from './layout.js';
 
 const FIGURE_WIDTH_DEFAULT = 280;
 const FIGURE_HEIGHT_DEFAULT = 220;
@@ -53,6 +53,8 @@ function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number 
   return width;
 }
 
+const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
+
 function WordLayer({ spans }: { spans: WordSpan[] }) {
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -65,14 +67,64 @@ function WordLayer({ spans }: { spans: WordSpan[] }) {
             top: s.y,
             fontSize: s.style.fontSize,
             lineHeight: `${s.style.lineHeight}px`,
-            fontFamily: s.style.fontFamily,
-            fontWeight: s.style.fontWeight,
+            fontFamily: s.code ? CODE_FONT : s.style.fontFamily,
+            fontWeight: s.bold ? '700' : s.style.fontWeight,
+            fontStyle: s.italic ? 'italic' : 'normal',
             color: s.style.color,
             whiteSpace: 'nowrap',
+            ...(s.code && {
+              background: 'rgba(15,23,42,0.07)',
+              borderRadius: 3,
+              padding: '1px 3px',
+            }),
           }}
         >
-          {s.text}
+          {s.math ? <MyST ast={{ type: 'inlineMath', value: s.text }} /> : s.text}
         </span>
+      ))}
+    </div>
+  );
+}
+
+function RichBlockLayer({
+  richBlocks,
+  onHeightsChange,
+}: {
+  richBlocks: PlacedRichBlock[];
+  onHeightsChange: (heights: number[]) => void;
+}) {
+  const refs = React.useRef<(HTMLDivElement | null)[]>([]);
+
+  React.useEffect(() => {
+    const observers: ResizeObserver[] = [];
+    const heights = new Array<number>(richBlocks.length).fill(0);
+
+    richBlocks.forEach((_, i) => {
+      const el = refs.current[i];
+      if (!el) return;
+      const ro = new ResizeObserver(([entry]) => {
+        heights[i] = Math.round(entry.contentRect.height);
+        onHeightsChange([...heights]);
+      });
+      ro.observe(el);
+      observers.push(ro);
+    });
+
+    return () => observers.forEach((ro) => ro.disconnect());
+  }, [richBlocks, onHeightsChange]);
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+      {richBlocks.map((block, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          style={{ position: 'absolute', left: 0, top: block.y, width: '100%' }}
+        >
+          <MyST ast={block.node} />
+        </div>
       ))}
     </div>
   );
@@ -221,12 +273,12 @@ function FigureCard({
 }
 
 interface OverlayProps {
-  paragraphs: string[];
+  blocks: ContentBlock[];
   figures: FigureInfo[];
   onClose: () => void;
 }
 
-function PretextOverlay({ paragraphs, figures, onClose }: OverlayProps) {
+function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
 
@@ -242,6 +294,14 @@ function PretextOverlay({ paragraphs, figures, onClose }: OverlayProps) {
   const dragRef = React.useRef<DragState | null>(null);
   const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
+  const [richBlockHeights, setRichBlockHeights] = React.useState<number[]>([]);
+
+  const handleRichBlockHeightsChange = React.useCallback((heights: number[]) => {
+    setRichBlockHeights((prev) => {
+      if (heights.length === prev.length && heights.every((h, i) => h === prev[i])) return prev;
+      return heights;
+    });
+  }, []);
 
   React.useEffect(() => {
     setFigPositions((prev) =>
@@ -284,21 +344,30 @@ function PretextOverlay({ paragraphs, figures, onClose }: OverlayProps) {
     bottom: p.y + p.height,
   }));
 
-  const spans = React.useMemo(
+  const { spans, richBlocks } = React.useMemo(
     () =>
       typeof document !== 'undefined'
-        ? layoutParagraphs(paragraphs, obstacles, containerWidth - OVERLAY_PADDING * 2, 0, {
-            ...DEFAULT_TEXT_STYLE,
-            fontSize: 16,
-            lineHeight: 26,
-            paragraphGap: 20,
-          })
-        : [],
+        ? layoutBlocks(
+            blocks,
+            obstacles,
+            containerWidth - OVERLAY_PADDING * 2,
+            0,
+            { ...DEFAULT_TEXT_STYLE, fontSize: 16, lineHeight: 26, paragraphGap: 20 },
+            richBlockHeights.length > 0 ? richBlockHeights : undefined,
+          )
+        : { spans: [], richBlocks: [] },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [paragraphs, containerWidth, JSON.stringify(figPositions)],
+    [blocks, containerWidth, JSON.stringify(figPositions), richBlockHeights],
   );
 
-  const contentHeight = spans.length > 0 ? Math.max(...spans.map((s) => s.y)) + 80 : 400;
+  const contentHeight = React.useMemo(() => {
+    const lastSpan = spans.length > 0 ? Math.max(...spans.map((s) => s.y)) + 80 : 0;
+    const lastRich =
+      richBlocks.length > 0
+        ? Math.max(...richBlocks.map((b) => b.y + b.estimatedHeight)) + 80
+        : 0;
+    return Math.max(400, lastSpan, lastRich);
+  }, [spans, richBlocks]);
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -429,6 +498,7 @@ function PretextOverlay({ paragraphs, figures, onClose }: OverlayProps) {
           }}
         >
           <WordLayer spans={spans} />
+          <RichBlockLayer richBlocks={richBlocks} onHeightsChange={handleRichBlockHeightsChange} />
 
           {figures.map((fig, i) => (
             <FigureCard
@@ -474,11 +544,11 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
 
   const draggableSelector = node.draggableSelector ?? 'pretext-draggable';
 
-  const { paragraphs, figures } = React.useMemo(() => {
+  const { blocks, figures } = React.useMemo(() => {
     const mdast = (references as any)?.article;
-    if (!mdast) return { paragraphs: [], figures: [] };
+    if (!mdast) return { blocks: [], figures: [] };
 
-    const paras = collectParagraphs(mdast);
+    const blks = collectBlocks(mdast);
     const figNodes = findAllDraggableNodes(mdast, draggableSelector);
 
     const figs: FigureInfo[] = figNodes.map((figNode, i) => ({
@@ -486,7 +556,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
       label: `Figure ${i + 1}`,
     }));
 
-    return { paragraphs: paras, figures: figs };
+    return { blocks: blks, figures: figs };
   }, [references, draggableSelector]);
 
   return (
@@ -509,7 +579,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
             ? `Found ${figures.length} draggable figure${figures.length !== 1 ? 's' : ''}. Open Pretext Mode to drag them — text reflows around all figures simultaneously.`
             : 'Open Pretext Mode to see this article with draggable figures.'}
         </p>
-        {paragraphs.length === 0 && (
+        {blocks.length === 0 && (
           <p style={{ margin: '0 0 14px', fontSize: 12, color: '#94a3b8' }}>
             (No article content found in MDAST.)
           </p>
@@ -534,7 +604,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
 
       {open && (
         <PretextOverlay
-          paragraphs={paragraphs}
+          blocks={blocks}
           figures={figures}
           onClose={() => setOpen(false)}
         />
