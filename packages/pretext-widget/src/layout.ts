@@ -29,7 +29,8 @@ export interface StyledWord {
   bold: boolean;
   italic: boolean;
   code: boolean;
-  math?: boolean; // inline math — value is raw LaTeX
+  math?: boolean;    // inline math
+  mathHtml?: string; // pre-rendered KaTeX HTML from MyST build pipeline
 }
 
 /** A block of content extracted from MDAST. */
@@ -59,7 +60,8 @@ export interface WordSpan {
   bold: boolean;
   italic: boolean;
   code: boolean;
-  math?: boolean; // inline math — render via KaTeX/MyST
+  math?: boolean;
+  mathHtml?: string; // pre-rendered KaTeX HTML — use dangerouslySetInnerHTML
 }
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
@@ -150,7 +152,7 @@ function extractWords(
     return [{ text: node.value as string, bold, italic, code: true }];
   }
   if (node.type === 'inlineMath') {
-    return [{ text: node.value as string, bold: false, italic: false, code: false, math: true }];
+    return [{ text: node.value as string, bold: false, italic: false, code: false, math: true, mathHtml: node.html as string | undefined }];
   }
   if (node.type === 'strong') {
     return (node.children ?? []).flatMap((c: any) => extractWords(c, true, italic, code));
@@ -300,6 +302,7 @@ export function layoutBlocks(
             italic: word.italic,
             code: word.code,
             math: word.math,
+            mathHtml: word.mathHtml,
           });
           x += ww + (word.code || word.math ? 4 : 6);
           wi++;

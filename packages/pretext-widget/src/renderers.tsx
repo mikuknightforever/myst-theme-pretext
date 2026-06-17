@@ -79,7 +79,9 @@ function WordLayer({ spans }: { spans: WordSpan[] }) {
             }),
           }}
         >
-          {s.math ? <MyST ast={{ type: 'inlineMath', value: s.text }} /> : s.text}
+          {s.math && s.mathHtml
+            ? <span dangerouslySetInnerHTML={{ __html: s.mathHtml }} />
+            : s.text}
         </span>
       ))}
     </div>
