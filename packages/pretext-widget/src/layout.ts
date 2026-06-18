@@ -200,7 +200,10 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'heading') {
-      const words = (node.children ?? []).flatMap((c: any) => extractWords(c, true));
+      const enumWord: StyledWord[] = node.enumerator
+        ? [{ text: String(node.enumerator), bold: true, italic: false, code: false }]
+        : [];
+      const words = [...enumWord, ...(node.children ?? []).flatMap((c: any) => extractWords(c, true))];
       if (words.length > 0) results.push({ type: 'heading', depth: node.depth ?? 2, words });
       return;
     }

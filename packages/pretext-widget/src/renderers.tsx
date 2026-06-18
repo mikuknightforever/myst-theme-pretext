@@ -528,12 +528,23 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    setFigPositions((prev) => {
-      const next = prev.map((p) => ({ ...p, x: containerWidth - p.width - 24 }));
-      // Return same reference if nothing changed to avoid triggering debounce
-      if (next.every((p, i) => p.x === prev[i].x)) return prev;
-      return next;
-    });
+    const { figureAnchors } =
+      typeof document !== 'undefined'
+        ? layoutBlocks(blocks, [], containerWidth, 0, {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 16,
+            lineHeight: 26,
+            paragraphGap: 20,
+          })
+        : { figureAnchors: [] as import('./layout.js').FigureAnchor[] };
+    setFigPositions((prev) =>
+      prev.map((p, i) => ({
+        ...p,
+        x: containerWidth - p.width - 24,
+        y: figureAnchors[i]?.y ?? p.y,
+      })),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerWidth]);
 
   React.useEffect(() => {
