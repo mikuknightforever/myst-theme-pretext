@@ -232,6 +232,38 @@ const MemoEquation = React.memo(function MemoEquation({ node }: { node: any }) {
   return <MyST ast={[node]} />;
 });
 
+/** Memoized iframe panel — renders the <iframe> directly to control height precisely. */
+const MemoIframe = React.memo(function MemoIframe({
+  src,
+  iframeHeight,
+  captionChildren,
+}: {
+  src: string;
+  iframeHeight: number;
+  captionChildren: any[];
+}) {
+  return (
+    <div style={{ padding: '8px 0 16px' }}>
+      <iframe
+        src={src}
+        style={{
+          width: '100%',
+          height: iframeHeight,
+          border: '1px solid rgba(0,0,0,0.1)',
+          borderRadius: 6,
+          display: 'block',
+        }}
+        title=""
+      />
+      {captionChildren.length > 0 && (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: '#64748b', paddingTop: 8 }}>
+          <MyST ast={captionChildren} />
+        </div>
+      )}
+    </div>
+  );
+});
+
 /** Block math layer — viewport-culled, equations themselves memoized. */
 function RichBlockLayer({
   richBlocks,
@@ -257,7 +289,44 @@ function RichBlockLayer({
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       {richBlocks.map((block, i) => {
-        if (block.y + block.estimatedHeight < yMin || block.y > yMax) return null;
+        const isIframe =
+          block.node?.type === 'iframe' ||
+          (block.node?.children ?? []).some((c: any) => c.type === 'iframe');
+        // Iframes: always keep mounted (no culling) — avoids reload on scroll
+        if (!isIframe && (block.y + block.estimatedHeight < yMin || block.y > yMax)) return null;
+
+        // Iframes: render directly (bypasses MyST container margins that cause text overlap)
+        if (isIframe) {
+          const iframeNode =
+            block.node?.type === 'iframe'
+              ? block.node
+              : (block.node?.children ?? []).find((c: any) => c.type === 'iframe') ?? block.node;
+          const captionNode =
+            block.node?.type === 'container'
+              ? (block.node.children ?? []).find((c: any) => c.type === 'caption')
+              : null;
+          const ih =
+            typeof iframeNode.height === 'number'
+              ? iframeNode.height
+              : parseInt(String(iframeNode.height ?? '400')) || 400;
+          const src = iframeNode.src ?? '';
+          return (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: block.y,
+                width: '100%',
+                boxSizing: 'border-box',
+                pointerEvents: 'auto',
+              }}
+            >
+              <MemoIframe src={src} iframeHeight={ih} captionChildren={captionNode?.children ?? []} />
+            </div>
+          );
+        }
+
         return (
           <div
             key={i}
@@ -637,7 +706,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           ref={contentRef}
           style={{
             position: 'relative',
-            maxWidth: 820,
+            maxWidth: 1400,
             margin: '0 auto',
             padding: `${OVERLAY_PADDING}px`,
             minHeight: contentHeight,

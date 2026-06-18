@@ -211,9 +211,33 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       results.push({ type: 'richBlock', node, estimatedHeight });
       return;
     }
+    if (node.type === 'iframe') {
+      const heightVal = node.height ?? '400px';
+      const h = typeof heightVal === 'number' ? heightVal : parseInt(String(heightVal)) || 400;
+      // +100: 24px top/bottom padding + ~60px caption + 16px caption padding
+      results.push({ type: 'richBlock', node, estimatedHeight: h + 100 });
+      return;
+    }
+    if (node.type === 'container') {
+      // Pretext-draggable containers are figure cards — skip
+      const cls = String(node.class ?? node.className ?? '');
+      if (cls.split(/\s+/).includes('pretext-draggable')) return;
+      // Container wrapping an iframe panel — render inline
+      const children: any[] = node.children ?? [];
+      const iframeChild = children.find((c: any) => c.type === 'iframe');
+      if (iframeChild) {
+        const heightVal = iframeChild.height ?? '400px';
+        const h = typeof heightVal === 'number' ? heightVal : parseInt(String(heightVal)) || 400;
+        // +100: matches MemoIframe's 8px top + 16px bottom padding + ~60px caption + 16px caption pad
+        results.push({ type: 'richBlock', node, estimatedHeight: h + 100 });
+        return;
+      }
+      // Other containers (theorem, figure, etc.) — skip
+      return;
+    }
     // Skip non-text node types — don't descend into them
     const SKIP_TYPES = new Set([
-      'container', 'iframe', 'image', 'table', 'code', 'mystDirective',
+      'image', 'table', 'code', 'mystDirective',
       'proof', 'theorem', 'lemma', 'corollary', 'definition', 'remark',
     ]);
     if (SKIP_TYPES.has(node.type)) return;
