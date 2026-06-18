@@ -55,12 +55,149 @@ function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number 
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
 
-function WordLayer({ spans }: { spans: WordSpan[] }) {
+/** Debounce a value — only updates after `delay` ms of no changes. */
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
+const CANVAS_BUFFER = 600; // px above/below viewport to pre-render
+
+/**
+ * Viewport-aware canvas text renderer.
+ *
+ * The canvas is always viewport-height + 2×BUFFER tall (never megabytes of memory).
+ * It repositions and redraws as the user scrolls, without touching React state.
+ */
+function WordCanvas({
+  spans,
+  width,
+  scrollContainerRef,
+}: {
+  spans: WordSpan[];
+  width: number;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  const draw = React.useCallback(
+    (scrollTop: number) => {
+      const canvas = canvasRef.current;
+      const container = scrollContainerRef.current;
+      if (!canvas || !container || width <= 0) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const viewH = container.clientHeight;
+      const canvasH = viewH + 2 * CANVAS_BUFFER;
+      const canvasTop = Math.max(0, scrollTop - CANVAS_BUFFER);
+      const yMin = canvasTop;
+      const yMax = canvasTop + canvasH;
+
+      const dpr = window.devicePixelRatio || 1;
+      // Only reallocate if dimensions changed to avoid costly memory ops
+      const needW = Math.round(width * dpr);
+      const needH = Math.round(canvasH * dpr);
+      if (canvas.width !== needW || canvas.height !== needH) {
+        canvas.width = needW;
+        canvas.height = needH;
+      }
+      canvas.style.top = `${canvasTop}px`;
+      canvas.style.height = `${canvasH}px`;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, canvasH);
+
+      for (const s of spans) {
+        if (s.code || s.math) continue;
+        if (s.y < yMin || s.y > yMax) continue;
+        const italic = s.italic ? 'italic ' : '';
+        const weight = s.bold ? '700' : s.style.fontWeight;
+        ctx.font = `${italic}${weight} ${s.style.fontSize}px ${s.style.fontFamily}`;
+        ctx.fillStyle = s.style.color;
+        ctx.fillText(s.text, s.x, (s.y - canvasTop) + s.style.fontSize * 0.82);
+      }
+    },
+    [spans, width, scrollContainerRef],
+  );
+
+  // Redraw when spans or width change
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    draw(container?.scrollTop ?? 0);
+  }, [draw, scrollContainerRef]);
+
+  // Scroll listener — redraws without React re-renders
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let rafId: number | null = null;
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        draw(container.scrollTop);
+      });
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [draw, scrollContainerRef]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'absolute', left: 0, width, pointerEvents: 'none' }}
+    />
+  );
+}
+
+const VIEWPORT_BUFFER = 500; // px above/below viewport to keep rendered
+
+/** DOM layer for inline code and math spans — viewport-culled to keep DOM node count low. */
+function MathCodeLayer({
+  spans,
+  scrollContainerRef,
+}: {
+  spans: WordSpan[];
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [scrollTop, setScrollTop] = React.useState(0);
+
+  React.useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [scrollContainerRef]);
+
+  const viewH = scrollContainerRef.current?.clientHeight ?? 600;
+  const yMin = scrollTop - VIEWPORT_BUFFER;
+  const yMax = scrollTop + viewH + VIEWPORT_BUFFER;
+
+  // Keep original index as key so React reuses DOM nodes when viewport shifts
+  const visible = React.useMemo(() => {
+    const out: Array<{ s: WordSpan; idx: number }> = [];
+    for (let i = 0; i < spans.length; i++) {
+      const s = spans[i];
+      if ((s.code || s.math) && s.y >= yMin && s.y <= yMax) out.push({ s, idx: i });
+    }
+    return out;
+  }, [spans, yMin, yMax]);
+
+  if (visible.length === 0) return null;
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-      {spans.map((s, i) => (
+      {visible.map(({ s, idx }) => (
         <span
-          key={i}
+          key={idx}
           style={{
             position: 'absolute',
             left: s.x,
@@ -79,55 +216,64 @@ function WordLayer({ spans }: { spans: WordSpan[] }) {
             }),
           }}
         >
-          {s.math && s.mathHtml
-            ? <span dangerouslySetInnerHTML={{ __html: s.mathHtml }} />
-            : s.text}
+          {s.math && s.mathHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: s.mathHtml }} />
+          ) : (
+            s.text
+          )}
         </span>
       ))}
     </div>
   );
 }
 
+/** Memoized single equation — prevents re-render when only y-position changes. */
+const MemoEquation = React.memo(function MemoEquation({ node }: { node: any }) {
+  return <MyST ast={[node]} />;
+});
+
+/** Block math layer — viewport-culled, equations themselves memoized. */
 function RichBlockLayer({
   richBlocks,
-  onHeightsChange,
+  scrollContainerRef,
 }: {
   richBlocks: PlacedRichBlock[];
-  onHeightsChange: (heights: number[]) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const refs = React.useRef<(HTMLDivElement | null)[]>([]);
+  const [scrollTop, setScrollTop] = React.useState(0);
 
   React.useEffect(() => {
-    const observers: ResizeObserver[] = [];
-    const heights = new Array<number>(richBlocks.length).fill(0);
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [scrollContainerRef]);
 
-    richBlocks.forEach((_, i) => {
-      const el = refs.current[i];
-      if (!el) return;
-      const ro = new ResizeObserver(([entry]) => {
-        heights[i] = Math.round(entry.contentRect.height);
-        onHeightsChange([...heights]);
-      });
-      ro.observe(el);
-      observers.push(ro);
-    });
-
-    return () => observers.forEach((ro) => ro.disconnect());
-  }, [richBlocks, onHeightsChange]);
+  const viewH = scrollContainerRef.current?.clientHeight ?? 600;
+  const yMin = scrollTop - VIEWPORT_BUFFER;
+  const yMax = scrollTop + viewH + VIEWPORT_BUFFER;
 
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-      {richBlocks.map((block, i) => (
-        <div
-          key={i}
-          ref={(el) => {
-            refs.current[i] = el;
-          }}
-          style={{ position: 'absolute', left: 0, top: block.y, width: '100%' }}
-        >
-          <MyST ast={block.node} />
-        </div>
-      ))}
+      {richBlocks.map((block, i) => {
+        if (block.y + block.estimatedHeight < yMin || block.y > yMax) return null;
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: block.y,
+              width: '100%',
+              boxSizing: 'border-box',
+              minHeight: block.estimatedHeight,
+            }}
+          >
+            <MemoEquation node={block.node} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -280,7 +426,7 @@ interface OverlayProps {
   onClose: () => void;
 }
 
-function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
+const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
 
@@ -293,22 +439,18 @@ function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
     })),
   );
 
+  const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
   const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
-  const [richBlockHeights, setRichBlockHeights] = React.useState<number[]>([]);
-
-  const handleRichBlockHeightsChange = React.useCallback((heights: number[]) => {
-    setRichBlockHeights((prev) => {
-      if (heights.length === prev.length && heights.every((h, i) => h === prev[i])) return prev;
-      return heights;
-    });
-  }, []);
 
   React.useEffect(() => {
-    setFigPositions((prev) =>
-      prev.map((p) => ({ ...p, x: containerWidth - p.width - 24 })),
-    );
+    setFigPositions((prev) => {
+      const next = prev.map((p) => ({ ...p, x: containerWidth - p.width - 24 }));
+      // Return same reference if nothing changed to avoid triggering debounce
+      if (next.every((p, i) => p.x === prev[i].x)) return prev;
+      return next;
+    });
   }, [containerWidth]);
 
   React.useEffect(() => {
@@ -349,26 +491,29 @@ function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
   const { spans, richBlocks } = React.useMemo(
     () =>
       typeof document !== 'undefined'
-        ? layoutBlocks(
-            blocks,
-            obstacles,
-            containerWidth - OVERLAY_PADDING * 2,
-            0,
-            { ...DEFAULT_TEXT_STYLE, fontSize: 16, lineHeight: 26, paragraphGap: 20 },
-            richBlockHeights.length > 0 ? richBlockHeights : undefined,
-          )
+        ? layoutBlocks(blocks, obstacles, containerWidth, 0, {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 16,
+            lineHeight: 26,
+            paragraphGap: 20,
+          })
         : { spans: [], richBlocks: [] },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, containerWidth, JSON.stringify(figPositions), richBlockHeights],
+    [blocks, containerWidth, JSON.stringify(figPositions)],
   );
 
+  // Avoid Math.max(...largeArray) stack overflow — use a loop instead.
   const contentHeight = React.useMemo(() => {
-    const lastSpan = spans.length > 0 ? Math.max(...spans.map((s) => s.y)) + 80 : 0;
-    const lastRich =
-      richBlocks.length > 0
-        ? Math.max(...richBlocks.map((b) => b.y + b.estimatedHeight)) + 80
-        : 0;
-    return Math.max(400, lastSpan, lastRich);
+    let max = 400;
+    for (const s of spans) {
+      const bottom = s.y + s.style.lineHeight + 80;
+      if (bottom > max) max = bottom;
+    }
+    for (const b of richBlocks) {
+      const bottom = b.y + b.estimatedHeight + 80;
+      if (bottom > max) max = bottom;
+    }
+    return max;
   }, [spans, richBlocks]);
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
@@ -487,7 +632,7 @@ function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
         </button>
       </header>
 
-      <div style={{ flex: 1, overflow: 'auto', background: 'Canvas' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: 'Canvas' }}>
         <div
           ref={contentRef}
           style={{
@@ -499,8 +644,13 @@ function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
             boxSizing: 'border-box',
           }}
         >
-          <WordLayer spans={spans} />
-          <RichBlockLayer richBlocks={richBlocks} onHeightsChange={handleRichBlockHeightsChange} />
+          <WordCanvas
+            spans={spans}
+            width={containerWidth}
+            scrollContainerRef={scrollRef}
+          />
+          <MathCodeLayer spans={spans} scrollContainerRef={scrollRef} />
+          <RichBlockLayer richBlocks={richBlocks} scrollContainerRef={scrollRef} />
 
           {figures.map((fig, i) => (
             <FigureCard
@@ -538,11 +688,12 @@ function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
       </div>
     </div>
   );
-}
+});
 
 export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
   const references = useReferences();
   const [open, setOpen] = React.useState(false);
+  const onClose = React.useCallback(() => setOpen(false), []);
 
   const draggableSelector = node.draggableSelector ?? 'pretext-draggable';
 
@@ -608,7 +759,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
         <PretextOverlay
           blocks={blocks}
           figures={figures}
-          onClose={() => setOpen(false)}
+          onClose={onClose}
         />
       )}
     </>

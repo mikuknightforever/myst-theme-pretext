@@ -68,10 +68,8 @@ const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
 
 function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingContext2D): number {
   if (word.math) {
-    // Estimate rendered KaTeX width from the LaTeX source:
-    // strip command names (e.g. \sum → S), count remaining glyphs, scale by font size.
     const glyphs = word.text
-      .replace(/\\[a-zA-Z]+/g, 'W') // each command ≈ one wide glyph
+      .replace(/\\[a-zA-Z]+/g, 'W')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, '');
     return Math.max(16, glyphs.length * style.fontSize * 0.52);
@@ -81,6 +79,19 @@ function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingCon
   const family = word.code ? CODE_FONT : style.fontFamily;
   ctx.font = `${modifier}${weight} ${style.fontSize}px ${family}`;
   return ctx.measureText(word.text).width;
+}
+
+/** Cross-call cache for word widths (persists across layoutBlocks calls for same document). */
+const _widthCache = new Map<string, number>();
+
+function measureCached(word: StyledWord, style: TextStyle, ctx: CanvasRenderingContext2D): number {
+  const k = `${style.fontSize}|${style.fontWeight}|${word.italic?1:0}|${word.code?1:0}|${word.math?1:0}|${word.text}`;
+  let v = _widthCache.get(k);
+  if (v === undefined) {
+    v = measureWord(word, style, ctx);
+    _widthCache.set(k, v);
+  }
+  return v;
 }
 
 /**
@@ -195,14 +206,17 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'math') {
-      // Block math: estimate height from line count, place as rich block
       const lines = (node.value as string).split('\n').filter(Boolean).length;
       const estimatedHeight = Math.max(72, lines * 38 + 32);
       results.push({ type: 'richBlock', node, estimatedHeight });
       return;
     }
-    // Don't descend into figure containers — those become cards, not text
-    if (node.type === 'container') return;
+    // Skip non-text node types — don't descend into them
+    const SKIP_TYPES = new Set([
+      'container', 'iframe', 'image', 'table', 'code', 'mystDirective',
+      'proof', 'theorem', 'lemma', 'corollary', 'definition', 'remark',
+    ]);
+    if (SKIP_TYPES.has(node.type)) return;
     if (node.children) {
       for (const child of node.children as any[]) walk(child);
     }
@@ -285,13 +299,14 @@ export function layoutBlocks(
         containerWidth,
       );
 
+      const wiAtLineStart = wi;
       for (const [segStart, segEnd] of segments) {
         let x = segStart;
         // Indent list items past their bullet on continuation lines
         if (block.bullet && wi > 0 && segStart === 0) x += 18;
         while (wi < words.length) {
           const word = words[wi];
-          const ww = measureWord(word, blockStyle, ctx);
+          const ww = measureCached(word, blockStyle, ctx);
           if (x + ww > segEnd) break;
           spans.push({
             text: word.text,
@@ -309,6 +324,9 @@ export function layoutBlocks(
         }
       }
       y += blockStyle.lineHeight;
+      // Safety: if no words were placed this line (word too wide for every segment),
+      // force-advance to prevent an infinite loop. The word is dropped from the layout.
+      if (wi === wiAtLineStart) wi++;
     }
 
     // Vertical gap after each block
