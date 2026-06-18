@@ -36,7 +36,8 @@ export interface StyledWord {
 /** A block of content extracted from MDAST. */
 export type ContentBlock =
   | { type: 'paragraph' | 'heading' | 'listItem'; depth?: number; bullet?: boolean; words: StyledWord[] }
-  | { type: 'richBlock'; node: any; estimatedHeight: number };
+  | { type: 'richBlock'; node: any; estimatedHeight: number }
+  | { type: 'figureAnchor'; figureIndex: number };
 
 /** A rich block placed at an absolute Y position for React rendering. */
 export interface PlacedRichBlock {
@@ -45,10 +46,17 @@ export interface PlacedRichBlock {
   estimatedHeight: number;
 }
 
+/** Y position of a figure anchor in the text flow. */
+export interface FigureAnchor {
+  figureIndex: number;
+  y: number;
+}
+
 /** Return value of layoutBlocks. */
 export interface LayoutResult {
   spans: WordSpan[];
   richBlocks: PlacedRichBlock[];
+  figureAnchors: FigureAnchor[];
 }
 
 /** A positioned word span ready for rendering. */
@@ -183,6 +191,7 @@ function extractWords(
  */
 export function collectBlocks(mdast: any): ContentBlock[] {
   const results: ContentBlock[] = [];
+  let figureIdx = 0;
   function walk(node: any) {
     if (!node) return;
     if (node.type === 'paragraph') {
@@ -219,9 +228,12 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'container') {
-      // Pretext-draggable containers are figure cards — skip
+      // Pretext-draggable containers are figure cards — record anchor, then skip
       const cls = String(node.class ?? node.className ?? '');
-      if (cls.split(/\s+/).includes('pretext-draggable')) return;
+      if (cls.split(/\s+/).includes('pretext-draggable')) {
+        results.push({ type: 'figureAnchor', figureIndex: figureIdx++ });
+        return;
+      }
       // Container wrapping an iframe panel — render inline
       const children: any[] = node.children ?? [];
       const iframeChild = children.find((c: any) => c.type === 'iframe');
@@ -282,14 +294,21 @@ export function layoutBlocks(
 ): LayoutResult {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  if (!ctx) return { spans: [], richBlocks: [] };
+  if (!ctx) return { spans: [], richBlocks: [], figureAnchors: [] };
 
   const spans: WordSpan[] = [];
   const richBlocks: PlacedRichBlock[] = [];
+  const figureAnchors: FigureAnchor[] = [];
   let y = startY;
   let richIdx = 0;
 
   for (const block of blocks) {
+    // ── Figure anchors (zero-height, record y position) ──────────────────────
+    if (block.type === 'figureAnchor') {
+      figureAnchors.push({ figureIndex: block.figureIndex, y });
+      continue;
+    }
+
     // ── Rich blocks (math, tables, etc.) ────────────────────────────────────
     if (block.type === 'richBlock') {
       const measuredH = richBlockHeights?.[richIdx];
@@ -359,7 +378,7 @@ export function layoutBlocks(
       : style.paragraphGap;
   }
 
-  return { spans, richBlocks };
+  return { spans, richBlocks, figureAnchors };
 }
 
 // ── Legacy helpers (kept for external use) ──────────────────────────────────

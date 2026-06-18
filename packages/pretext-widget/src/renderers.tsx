@@ -499,14 +499,28 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
 
-  const [figPositions, setFigPositions] = React.useState<FigurePosition[]>(() =>
-    figures.map((_, i) => ({
+  const [figPositions, setFigPositions] = React.useState<FigurePosition[]>(() => {
+    if (typeof document === 'undefined') {
+      return figures.map((_, i) => ({
+        x: 0,
+        y: 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
+        width: FIGURE_WIDTH_DEFAULT,
+        height: FIGURE_HEIGHT_DEFAULT,
+      }));
+    }
+    const { figureAnchors } = layoutBlocks(blocks, [], containerWidth, 0, {
+      ...DEFAULT_TEXT_STYLE,
+      fontSize: 16,
+      lineHeight: 26,
+      paragraphGap: 20,
+    });
+    return figures.map((_, i) => ({
       x: containerWidth - FIGURE_WIDTH_DEFAULT - 24,
-      y: 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
+      y: figureAnchors[i]?.y ?? 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
       width: FIGURE_WIDTH_DEFAULT,
       height: FIGURE_HEIGHT_DEFAULT,
-    })),
-  );
+    }));
+  });
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
@@ -523,10 +537,19 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   }, [containerWidth]);
 
   React.useEffect(() => {
+    const { figureAnchors } =
+      typeof document !== 'undefined'
+        ? layoutBlocks(blocks, [], containerWidth, 0, {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 16,
+            lineHeight: 26,
+            paragraphGap: 20,
+          })
+        : { figureAnchors: [] as import('./layout.js').FigureAnchor[] };
     setFigPositions(
       figures.map((_, i) => ({
         x: containerWidth - FIGURE_WIDTH_DEFAULT - 24,
-        y: 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
+        y: figureAnchors[i]?.y ?? 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
         width: FIGURE_WIDTH_DEFAULT,
         height: FIGURE_HEIGHT_DEFAULT,
       })),
@@ -582,8 +605,12 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
       const bottom = b.y + b.estimatedHeight + 80;
       if (bottom > max) max = bottom;
     }
+    for (const p of figPositions) {
+      const bottom = p.y + p.height + 80;
+      if (bottom > max) max = bottom;
+    }
     return max;
-  }, [spans, richBlocks]);
+  }, [spans, richBlocks, figPositions]);
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     e.currentTarget.setPointerCapture(e.pointerId);
