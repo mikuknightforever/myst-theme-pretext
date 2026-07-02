@@ -214,9 +214,6 @@ export function useHeaders(selector: string, maxdepth: number) {
   if (!onClient) return { activeId: '', headings: [] };
   // Keep track of main manually for now
   const mainElementRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    mainElementRef.current = document.querySelector('main');
-  }, []);
 
   // Track changes to the DOM
   const [elements, setElements] = useState<HTMLHeadingElement[]>([]);
@@ -237,8 +234,18 @@ export function useHeaders(selector: string, maxdepth: number) {
     subtree: true,
   });
 
-  // Trigger initial update
-  useEffect(onMutation, []);
+  // Capture headings once the article DOM has committed. Keeping the main ref
+  // assignment and the first scan in the same effect avoids a race where the
+  // article headings are inserted before the mutation observer is connected.
+  useEffect(() => {
+    mainElementRef.current = document.querySelector('main');
+    const updateElements = () => {
+      setElements((prev) => arrayIfChanged(prev, getHeaders(selector)));
+    };
+    updateElements();
+    const frame = window.requestAnimationFrame(updateElements);
+    return () => window.cancelAnimationFrame(frame);
+  }, [selector]);
 
   // Watch intersections with headings
   const { intersecting } = useIntersectionObserver(elements);
@@ -383,8 +390,14 @@ function useMarginOccluder() {
           .map((cls) => [`.${cls}`, `.${cls} > *`])
           .flat()
           .join(', ');
-        const marginElements = mainElementRef.current.querySelectorAll(selector);
-        setElements((prev) => arrayIfChanged(prev, Array.from(marginElements)));
+        const marginElements = Array.from(mainElementRef.current.querySelectorAll(selector)).filter(
+          // The article banner sits above the document grid. It may use a wide
+          // column class, but it never competes with the sticky outline below it.
+          // Counting it (or its children) as an occluder collapses the outline
+          // as soon as the page loads.
+          (element) => !element.closest('.myst-article-header-banner'),
+        );
+        setElements((prev) => arrayIfChanged(prev, marginElements));
       },
       500,
       // Trailing updates help ensure we eventually process the last DOM mutation burst.

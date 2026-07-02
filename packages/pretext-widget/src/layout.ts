@@ -29,13 +29,25 @@ export interface StyledWord {
   bold: boolean;
   italic: boolean;
   code: boolean;
+  /** Whitespace present immediately before/after this token in the source. */
+  spaceBefore?: boolean;
+  spaceAfter?: boolean;
   math?: boolean;    // inline math
   mathHtml?: string; // pre-rendered KaTeX HTML from MyST build pipeline
+  /** Preserve interactive inline nodes for MyST's native hover/link renderers. */
+  semanticNode?: any;
 }
 
 /** A block of content extracted from MDAST. */
 export type ContentBlock =
-  | { type: 'paragraph' | 'heading' | 'listItem'; depth?: number; bullet?: boolean; words: StyledWord[] }
+  | { type: 'paragraph' | 'listItem'; bullet?: boolean; words: StyledWord[] }
+  | {
+      type: 'heading';
+      depth: number;
+      words: StyledWord[];
+      headingId: string;
+      headingTitle: string;
+    }
   | { type: 'richBlock'; node: any; estimatedHeight: number }
   | { type: 'figureAnchor'; figureIndex: number };
 
@@ -52,11 +64,20 @@ export interface FigureAnchor {
   y: number;
 }
 
+/** A heading position used by Pretext Mode's document outline. */
+export interface HeadingAnchor {
+  id: string;
+  title: string;
+  depth: number;
+  y: number;
+}
+
 /** Return value of layoutBlocks. */
 export interface LayoutResult {
   spans: WordSpan[];
   richBlocks: PlacedRichBlock[];
   figureAnchors: FigureAnchor[];
+  headingAnchors: HeadingAnchor[];
 }
 
 /** A positioned word span ready for rendering. */
@@ -70,6 +91,7 @@ export interface WordSpan {
   code: boolean;
   math?: boolean;
   mathHtml?: string; // pre-rendered KaTeX HTML — use dangerouslySetInnerHTML
+  semanticNode?: any; // rendered through MyST to retain links and hover cards
 }
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
@@ -80,7 +102,8 @@ function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingCon
       .replace(/\\[a-zA-Z]+/g, 'W')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, '');
-    return Math.max(16, glyphs.length * style.fontSize * 0.52);
+    // KaTeX glyph boxes and operator spacing are wider than plain canvas text.
+    return Math.max(18, glyphs.length * style.fontSize * 0.62 + 4);
   }
   const weight = word.bold ? '700' : style.fontWeight;
   const modifier = word.italic ? 'italic ' : '';
@@ -100,6 +123,47 @@ function measureCached(word: StyledWord, style: TextStyle, ctx: CanvasRenderingC
     _widthCache.set(k, v);
   }
   return v;
+}
+
+const SEMANTIC_INLINE_TYPES = new Set([
+  'abbreviation',
+  'cite',
+  'citeGroup',
+  'crossReference',
+  'footnoteReference',
+  'link',
+]);
+
+/** Plain-text approximation used only to measure semantic inline nodes. */
+function semanticText(node: any): string {
+  if (!node) return '';
+  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'inlineMath') {
+    return String(node.value ?? '');
+  }
+  if (node.type === 'footnoteReference') {
+    return `[${node.enumerator ?? node.number ?? node.identifier ?? ''}]`;
+  }
+  if (node.type === 'citeGroup') {
+    const children = (node.children ?? []).map((child: any) => semanticText(child));
+    const allCitations = (node.children ?? []).every((child: any) => child.type === 'cite');
+    const separator = allCitations && node.kind === 'parenthetical' ? '; ' : ', ';
+    const body = children.join(separator);
+    return node.kind === 'parenthetical' ? `(${body})` : body;
+  }
+  const children = (node.children ?? []).map((child: any) => semanticText(child)).join('');
+  const fallback = node.enumerator ?? node.label ?? node.identifier ?? node.title ?? node.url ?? '';
+  const body = children || fallback;
+  const prefix = node.prefix ? `${node.prefix} ` : '';
+  return `${prefix}${body}${node.suffix ?? ''}`.trim();
+}
+
+function slugifyHeading(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'section';
 }
 
 /**
@@ -161,17 +225,53 @@ function extractWords(
 ): StyledWord[] {
   if (!node) return [];
   if (node.type === 'text') {
-    return (node.value as string)
-      .replace(/\s+/g, ' ')
-      .split(' ')
-      .filter(Boolean)
-      .map((text) => ({ text, bold, italic, code }));
+    const value = String(node.value ?? '').replace(/\s+/g, ' ');
+    const words: StyledWord[] = [];
+    const tokenPattern = /\S+/g;
+    let match: RegExpExecArray | null;
+    while ((match = tokenPattern.exec(value)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      words.push({
+        text: match[0],
+        bold,
+        italic,
+        code,
+        spaceBefore: start > 0 && /\s/.test(value[start - 1]),
+        spaceAfter: end < value.length && /\s/.test(value[end]),
+      });
+    }
+    return words;
   }
   if (node.type === 'inlineCode') {
     return [{ text: node.value as string, bold, italic, code: true }];
   }
   if (node.type === 'inlineMath') {
     return [{ text: node.value as string, bold: false, italic: false, code: false, math: true, mathHtml: node.html as string | undefined }];
+  }
+  if (node.type === 'citeGroup') {
+    const children: any[] = node.children ?? [];
+    const allCitations = children.every((child: any) => child.type === 'cite');
+    const separator = allCitations && node.kind === 'parenthetical' ? ';' : ',';
+    const words: StyledWord[] = [];
+    if (node.kind === 'parenthetical') {
+      words.push({ text: '(', bold, italic, code });
+    }
+    children.forEach((child: any, index: number) => {
+      const text = semanticText(child);
+      if (text) words.push({ text, bold, italic, code, semanticNode: child });
+      if (index < children.length - 1) {
+        words.push({ text: separator, bold, italic, code, spaceAfter: true });
+      }
+    });
+    if (node.kind === 'parenthetical') {
+      words.push({ text: ')', bold, italic, code });
+    }
+    return words;
+  }
+  if (SEMANTIC_INLINE_TYPES.has(node.type)) {
+    const text = semanticText(node);
+    return text ? [{ text, bold, italic, code, semanticNode: node }] : [];
   }
   if (node.type === 'strong') {
     return (node.children ?? []).flatMap((c: any) => extractWords(c, true, italic, code));
@@ -192,6 +292,7 @@ function extractWords(
 export function collectBlocks(mdast: any): ContentBlock[] {
   const results: ContentBlock[] = [];
   let figureIdx = 0;
+  const headingIds = new Map<string, number>();
   function walk(node: any) {
     if (!node) return;
     if (node.type === 'paragraph') {
@@ -200,11 +301,27 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'heading') {
+      const plainTitle = semanticText(node).trim() || 'Untitled section';
+      const title = node.enumerator ? `${node.enumerator} ${plainTitle}` : plainTitle;
+      const requestedId = String(
+        node.html_id ?? node.identifier ?? node.label ?? slugifyHeading(plainTitle),
+      ).replace(/^#/, '');
+      const seen = headingIds.get(requestedId) ?? 0;
+      headingIds.set(requestedId, seen + 1);
+      const headingId = seen === 0 ? requestedId : `${requestedId}-${seen + 1}`;
       const enumWord: StyledWord[] = node.enumerator
-        ? [{ text: String(node.enumerator), bold: true, italic: false, code: false }]
+        ? [{ text: String(node.enumerator), bold: true, italic: false, code: false, spaceAfter: true }]
         : [];
       const words = [...enumWord, ...(node.children ?? []).flatMap((c: any) => extractWords(c, true))];
-      if (words.length > 0) results.push({ type: 'heading', depth: node.depth ?? 2, words });
+      if (words.length > 0) {
+        results.push({
+          type: 'heading',
+          depth: node.depth ?? 2,
+          words,
+          headingId,
+          headingTitle: title,
+        });
+      }
       return;
     }
     if (node.type === 'listItem') {
@@ -294,21 +411,27 @@ export function layoutBlocks(
   style: TextStyle,
   /** Actual measured heights from a previous render pass, indexed by richBlock order. */
   richBlockHeights?: number[],
+  /** Minimum vertical distance between initial draggable-figure anchors. */
+  minFigureAnchorSpacing = 0,
 ): LayoutResult {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  if (!ctx) return { spans: [], richBlocks: [], figureAnchors: [] };
+  if (!ctx) return { spans: [], richBlocks: [], figureAnchors: [], headingAnchors: [] };
 
   const spans: WordSpan[] = [];
   const richBlocks: PlacedRichBlock[] = [];
   const figureAnchors: FigureAnchor[] = [];
+  const headingAnchors: HeadingAnchor[] = [];
   let y = startY;
   let richIdx = 0;
+  let previousFigureAnchorY = Number.NEGATIVE_INFINITY;
 
   for (const block of blocks) {
     // ── Figure anchors (zero-height, record y position) ──────────────────────
     if (block.type === 'figureAnchor') {
-      figureAnchors.push({ figureIndex: block.figureIndex, y });
+      const anchorY = Math.max(y, previousFigureAnchorY + minFigureAnchorSpacing);
+      figureAnchors.push({ figureIndex: block.figureIndex, y: anchorY });
+      previousFigureAnchorY = anchorY;
       continue;
     }
 
@@ -329,10 +452,19 @@ export function layoutBlocks(
 
     // Extra vertical space before headings
     if (block.type === 'heading') y += Math.round(blockStyle.lineHeight * 0.6);
+    if (block.type === 'heading') {
+      headingAnchors.push({
+        id: block.headingId,
+        title: block.headingTitle,
+        depth: block.depth,
+        y,
+      });
+    }
 
     // Prepend bullet for list items
-    const words: StyledWord[] = block.bullet
-      ? [{ text: '•', bold: false, italic: false, code: false }, ...block.words]
+    const isListItem = block.type === 'listItem' && block.bullet;
+    const words: StyledWord[] = isListItem
+      ? [{ text: '•', bold: false, italic: false, code: false, spaceAfter: true }, ...block.words]
       : block.words;
 
     let wi = 0;
@@ -348,12 +480,30 @@ export function layoutBlocks(
       const wiAtLineStart = wi;
       for (const [segStart, segEnd] of segments) {
         let x = segStart;
+        let placedInSegment = false;
         // Indent list items past their bullet on continuation lines
-        if (block.bullet && wi > 0 && segStart === 0) x += 18;
+        if (isListItem && wi > 0 && segStart === 0) x += 18;
         while (wi < words.length) {
           const word = words[wi];
           const ww = measureCached(word, blockStyle, ctx);
-          if (x + ww > segEnd) break;
+          const previous = wi > 0 ? words[wi - 1] : undefined;
+          const gap = placedInSegment && (previous?.spaceAfter || word.spaceBefore) ? 6 : 0;
+          // Keep source-attached fragments together, e.g. abbreviation + plural
+          // suffix (`KAN` + `s`) and parentheses around inline math.
+          let clusterWidth = ww;
+          let clusterEnd = wi + 1;
+          while (
+            clusterEnd < words.length &&
+            !words[clusterEnd - 1].spaceAfter &&
+            !words[clusterEnd].spaceBefore
+          ) {
+            clusterWidth += measureCached(words[clusterEnd], blockStyle, ctx);
+            clusterEnd++;
+          }
+          const segmentWidth = segEnd - segStart;
+          const requiredWidth = clusterWidth <= segmentWidth ? clusterWidth : ww;
+          if (x + gap + requiredWidth > segEnd) break;
+          x += gap;
           spans.push({
             text: word.text,
             x,
@@ -364,9 +514,11 @@ export function layoutBlocks(
             code: word.code,
             math: word.math,
             mathHtml: word.mathHtml,
+            semanticNode: word.semanticNode,
           });
-          x += ww + (word.code || word.math ? 4 : 6);
+          x += ww;
           wi++;
+          placedInSegment = true;
         }
       }
       y += blockStyle.lineHeight;
@@ -381,7 +533,7 @@ export function layoutBlocks(
       : style.paragraphGap;
   }
 
-  return { spans, richBlocks, figureAnchors };
+  return { spans, richBlocks, figureAnchors, headingAnchors };
 }
 
 // ── Legacy helpers (kept for external use) ──────────────────────────────────

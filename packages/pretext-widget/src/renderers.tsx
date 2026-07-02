@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { useReferences } from '@myst-theme/providers';
+import { createPortal } from 'react-dom';
+import { useReferences, useThemeSwitcher } from '@myst-theme/providers';
 import { MyST } from 'myst-to-react';
 import type { PretextWidget } from './types.js';
 import {
@@ -8,13 +9,63 @@ import {
   layoutBlocks,
   DEFAULT_TEXT_STYLE,
 } from './layout.js';
-import type { WordSpan, ObstacleRect, ContentBlock, PlacedRichBlock } from './layout.js';
+import type {
+  WordSpan,
+  ObstacleRect,
+  ContentBlock,
+  PlacedRichBlock,
+  HeadingAnchor,
+  LayoutResult,
+} from './layout.js';
 
 const FIGURE_WIDTH_DEFAULT = 280;
 const FIGURE_HEIGHT_DEFAULT = 220;
 const FIGURE_MIN_W = 120;
 const FIGURE_MIN_H = 80;
 const OVERLAY_PADDING = 40;
+
+const PRETEXT_TEXT_STYLE = {
+  ...DEFAULT_TEXT_STYLE,
+  fontSize: 16,
+  lineHeight: 26,
+  paragraphGap: 20,
+};
+
+const EMPTY_LAYOUT: LayoutResult = {
+  spans: [],
+  richBlocks: [],
+  figureAnchors: [],
+  headingAnchors: [],
+};
+
+/**
+ * Cache only the small set of layouts needed to open a document. The blocks
+ * array is stable for the lifetime of an article and can be held weakly, so
+ * navigating away releases all cached spans automatically.
+ */
+const openingLayoutCache = new WeakMap<ContentBlock[], Map<string, LayoutResult>>();
+
+function getOpeningLayout(
+  blocks: ContentBlock[],
+  key: string,
+  calculate: () => LayoutResult,
+): LayoutResult {
+  let entries = openingLayoutCache.get(blocks);
+  if (!entries) {
+    entries = new Map();
+    openingLayoutCache.set(blocks, entries);
+  }
+  const cached = entries.get(key);
+  if (cached) return cached;
+  const result = calculate();
+  // Keep a few responsive widths without retaining an unbounded set.
+  if (entries.size >= 4) {
+    const oldest = entries.keys().next().value;
+    if (oldest) entries.delete(oldest);
+  }
+  entries.set(key, result);
+  return result;
+}
 
 interface FigureInfo {
   mdastNode: any;
@@ -40,17 +91,34 @@ interface DragState {
 }
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number {
-  const [width, setWidth] = React.useState(760);
+  const [width, setWidth] = React.useState(0);
   React.useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
-      if (w) setWidth(w);
+      if (w) {
+        const next = Math.round(w);
+        setWidth((current) => (current === next ? current : next));
+      }
     });
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
   return width;
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = React.useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false,
+  );
+  React.useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
 }
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
@@ -77,10 +145,12 @@ function WordCanvas({
   spans,
   width,
   scrollContainerRef,
+  isDark,
 }: {
   spans: WordSpan[];
   width: number;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  isDark: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -113,16 +183,24 @@ function WordCanvas({
       ctx.clearRect(0, 0, width, canvasH);
 
       for (const s of spans) {
-        if (s.code || s.math) continue;
+        if (s.code || s.math || s.semanticNode) continue;
         if (s.y < yMin || s.y > yMax) continue;
         const italic = s.italic ? 'italic ' : '';
         const weight = s.bold ? '700' : s.style.fontWeight;
         ctx.font = `${italic}${weight} ${s.style.fontSize}px ${s.style.fontFamily}`;
-        ctx.fillStyle = s.style.color;
-        ctx.fillText(s.text, s.x, (s.y - canvasTop) + s.style.fontSize * 0.82);
+        ctx.fillStyle = isDark ? '#e5e7eb' : s.style.color;
+        // Match the browser's inline-text baseline: half of the line-height
+        // leading sits above the glyph box. DOM-rendered citations, links and
+        // abbreviations use this baseline, so the canvas text must as well.
+        const halfLeading = Math.max(0, (s.style.lineHeight - s.style.fontSize) / 2);
+        ctx.fillText(
+          s.text,
+          s.x,
+          (s.y - canvasTop) + halfLeading + s.style.fontSize * 0.82,
+        );
       }
     },
-    [spans, width, scrollContainerRef],
+    [spans, width, scrollContainerRef, isDark],
   );
 
   // Redraw when spans or width change
@@ -160,13 +238,15 @@ function WordCanvas({
 
 const VIEWPORT_BUFFER = 500; // px above/below viewport to keep rendered
 
-/** DOM layer for inline code and math spans — viewport-culled to keep DOM node count low. */
+/** DOM layer for code, math, links, citations and cross references. */
 function MathCodeLayer({
   spans,
   scrollContainerRef,
+  isDark,
 }: {
   spans: WordSpan[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  isDark: boolean;
 }) {
   const [scrollTop, setScrollTop] = React.useState(0);
 
@@ -187,7 +267,9 @@ function MathCodeLayer({
     const out: Array<{ s: WordSpan; idx: number }> = [];
     for (let i = 0; i < spans.length; i++) {
       const s = spans[i];
-      if ((s.code || s.math) && s.y >= yMin && s.y <= yMax) out.push({ s, idx: i });
+      if ((s.code || s.math || s.semanticNode) && s.y >= yMin && s.y <= yMax) {
+        out.push({ s, idx: i });
+      }
     }
     return out;
   }, [spans, yMin, yMax]);
@@ -207,16 +289,19 @@ function MathCodeLayer({
             fontFamily: s.code ? CODE_FONT : s.style.fontFamily,
             fontWeight: s.bold ? '700' : s.style.fontWeight,
             fontStyle: s.italic ? 'italic' : 'normal',
-            color: s.style.color,
+            color: isDark ? '#e5e7eb' : s.style.color,
             whiteSpace: 'nowrap',
+            pointerEvents: s.semanticNode ? 'auto' : 'none',
             ...(s.code && {
-              background: 'rgba(15,23,42,0.07)',
+              background: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.07)',
               borderRadius: 3,
               padding: '1px 3px',
             }),
           }}
         >
-          {s.math && s.mathHtml ? (
+          {s.semanticNode ? (
+            <MyST ast={[s.semanticNode]} />
+          ) : s.math && s.mathHtml ? (
             <span dangerouslySetInnerHTML={{ __html: s.mathHtml }} />
           ) : (
             s.text
@@ -224,6 +309,102 @@ function MathCodeLayer({
         </span>
       ))}
     </div>
+  );
+}
+
+function PretextOutline({
+  headings,
+  scrollContainerRef,
+  isDark,
+}: {
+  headings: HeadingAnchor[];
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  isDark: boolean;
+}) {
+  const [activeId, setActiveId] = React.useState(headings[0]?.id ?? '');
+
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || headings.length === 0) return;
+    let rafId: number | null = null;
+    const update = () => {
+      rafId = null;
+      const marker = container.scrollTop + 120;
+      let next = headings[0].id;
+      for (const heading of headings) {
+        if (heading.y > marker) break;
+        next = heading.id;
+      }
+      setActiveId((current) => (current === next ? current : next));
+    };
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(update);
+    };
+    update();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [headings, scrollContainerRef]);
+
+  if (headings.length === 0) return null;
+  const minDepth = Math.min(...headings.map((heading) => heading.depth));
+
+  return (
+    <nav aria-label="Pretext document outline">
+      <div
+        style={{
+          marginBottom: 12,
+          fontSize: 12,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: isDark ? '#94a3b8' : '#64748b',
+        }}
+      >
+        On this page
+      </div>
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {headings.map((heading) => {
+          const active = heading.id === activeId;
+          return (
+            <li key={heading.id} style={{ margin: '2px 0' }}>
+              <button
+                type="button"
+                aria-current={active ? 'location' : undefined}
+                onClick={() => {
+                  scrollContainerRef.current?.scrollTo({
+                    top: Math.max(0, heading.y - 24),
+                    behavior: 'smooth',
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  border: 0,
+                  borderLeft: `3px solid ${active ? '#2563eb' : 'transparent'}`,
+                  borderRadius: '0 7px 7px 0',
+                  padding: `7px 8px 7px ${8 + (heading.depth - minDepth) * 12}px`,
+                  background: active
+                    ? isDark ? 'rgba(96,165,250,0.18)' : 'rgba(37,99,235,0.09)'
+                    : 'transparent',
+                  color: active ? (isDark ? '#93c5fd' : '#1d4ed8') : (isDark ? '#cbd5e1' : '#475569'),
+                  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  lineHeight: 1.35,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                }}
+              >
+                {heading.title}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
@@ -358,6 +539,7 @@ function FigureCard({
   onPointerCancel,
   onResizePointerDown,
   index,
+  isDark,
 }: {
   fig: FigureInfo;
   pos: FigurePosition;
@@ -369,6 +551,7 @@ function FigureCard({
   onPointerCancel: () => void;
   onResizePointerDown: (e: React.PointerEvent<HTMLDivElement>, idx: number) => void;
   index: number;
+  isDark: boolean;
 }) {
   const active = isDragging || isResizing;
   return (
@@ -389,7 +572,8 @@ function FigureCard({
         userSelect: 'none',
         borderRadius: 16,
         border: `2px solid ${active ? 'rgba(37,99,235,0.9)' : 'rgba(37,99,235,0.4)'}`,
-        background: '#f8fafc',
+        background: isDark ? '#1e293b' : '#f8fafc',
+        color: isDark ? '#e5e7eb' : '#111827',
         boxSizing: 'border-box',
         overflow: 'hidden',
         boxShadow: active
@@ -445,7 +629,7 @@ function FigureCard({
               padding: '6px 10px 8px',
               fontSize: 11,
               lineHeight: 1.4,
-              color: '#475569',
+              color: isDark ? '#cbd5e1' : '#475569',
               borderTop: '1px solid rgba(148,163,184,0.25)',
               pointerEvents: 'none',
             }}
@@ -496,31 +680,18 @@ interface OverlayProps {
 }
 
 const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onClose }: OverlayProps) {
+  const { isDark, nextTheme } = useThemeSwitcher();
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
+  const showOutline = useMediaQuery('(min-width: 1180px)');
 
-  const [figPositions, setFigPositions] = React.useState<FigurePosition[]>(() => {
-    if (typeof document === 'undefined') {
-      return figures.map((_, i) => ({
-        x: 0,
-        y: 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
-        width: FIGURE_WIDTH_DEFAULT,
-        height: FIGURE_HEIGHT_DEFAULT,
-      }));
-    }
-    const { figureAnchors } = layoutBlocks(blocks, [], containerWidth, 0, {
-      ...DEFAULT_TEXT_STYLE,
-      fontSize: 16,
-      lineHeight: 26,
-      paragraphGap: 20,
-    });
-    return figures.map((_, i) => ({
-      x: containerWidth - FIGURE_WIDTH_DEFAULT - 24,
-      y: figureAnchors[i]?.y ?? 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
-      width: FIGURE_WIDTH_DEFAULT,
-      height: FIGURE_HEIGHT_DEFAULT,
-    }));
-  });
+  const [figureLayout, setFigureLayout] = React.useState<{
+    width: number;
+    positions: FigurePosition[];
+  } | null>(null);
+  const figPositions =
+    figureLayout?.width === containerWidth ? figureLayout.positions : null;
+  const initialLayoutRef = React.useRef(true);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
@@ -528,45 +699,33 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    const { figureAnchors } =
-      typeof document !== 'undefined'
-        ? layoutBlocks(blocks, [], containerWidth, 0, {
-            ...DEFAULT_TEXT_STYLE,
-            fontSize: 16,
-            lineHeight: 26,
-            paragraphGap: 20,
-          })
-        : { figureAnchors: [] as import('./layout.js').FigureAnchor[] };
-    setFigPositions((prev) =>
-      prev.map((p, i) => ({
-        ...p,
-        x: containerWidth - p.width - 24,
-        y: figureAnchors[i]?.y ?? p.y,
-      })),
+    if (typeof document === 'undefined' || containerWidth <= 0) return;
+    initialLayoutRef.current = true;
+    const widthKey = Math.round(containerWidth);
+    const { figureAnchors } = getOpeningLayout(
+      blocks,
+      `base:${widthKey}`,
+      () =>
+        layoutBlocks(
+          blocks,
+          [],
+          containerWidth,
+          0,
+          PRETEXT_TEXT_STYLE,
+          undefined,
+          FIGURE_HEIGHT_DEFAULT + 32,
+        ),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerWidth]);
-
-  React.useEffect(() => {
-    const { figureAnchors } =
-      typeof document !== 'undefined'
-        ? layoutBlocks(blocks, [], containerWidth, 0, {
-            ...DEFAULT_TEXT_STYLE,
-            fontSize: 16,
-            lineHeight: 26,
-            paragraphGap: 20,
-          })
-        : { figureAnchors: [] as import('./layout.js').FigureAnchor[] };
-    setFigPositions(
-      figures.map((_, i) => ({
-        x: containerWidth - FIGURE_WIDTH_DEFAULT - 24,
+    setFigureLayout({
+      width: containerWidth,
+      positions: figures.map((_, i) => ({
+        x: Math.max(0, containerWidth - FIGURE_WIDTH_DEFAULT - 24),
         y: figureAnchors[i]?.y ?? 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
         width: FIGURE_WIDTH_DEFAULT,
         height: FIGURE_HEIGHT_DEFAULT,
       })),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [figures.length]);
+    });
+  }, [blocks, figures, containerWidth]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -576,34 +735,32 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  React.useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  const obstacles: ObstacleRect[] = figPositions.map((p) => ({
+  const obstacles: ObstacleRect[] = (figPositions ?? []).map((p) => ({
     left: p.x,
     top: p.y,
     right: p.x + p.width,
     bottom: p.y + p.height,
   }));
 
-  const { spans, richBlocks } = React.useMemo(
-    () =>
-      typeof document !== 'undefined'
-        ? layoutBlocks(blocks, obstacles, containerWidth, 0, {
-            ...DEFAULT_TEXT_STYLE,
-            fontSize: 16,
-            lineHeight: 26,
-            paragraphGap: 20,
-          })
-        : { spans: [], richBlocks: [] },
+  const positionKey = figPositions
+    ?.map((p) => `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.width)},${Math.round(p.height)}`)
+    .join(';') ?? '';
+  const { spans, richBlocks, headingAnchors } = React.useMemo(() => {
+    if (typeof document === 'undefined' || containerWidth <= 0 || !figPositions) {
+      return EMPTY_LAYOUT;
+    }
+    const calculate = () =>
+      layoutBlocks(blocks, obstacles, containerWidth, 0, PRETEXT_TEXT_STYLE);
+    if (!initialLayoutRef.current) return calculate();
+    return getOpeningLayout(
+      blocks,
+      `initial:${Math.round(containerWidth)}:${positionKey}`,
+      calculate,
+    );
+    // `positionKey` captures every obstacle coordinate without depending on a
+    // newly allocated obstacles array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, containerWidth, JSON.stringify(figPositions)],
-  );
+  }, [blocks, containerWidth, positionKey]);
 
   // Avoid Math.max(...largeArray) stack overflow — use a loop instead.
   const contentHeight = React.useMemo(() => {
@@ -616,7 +773,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
       const bottom = b.y + b.estimatedHeight + 80;
       if (bottom > max) max = bottom;
     }
-    for (const p of figPositions) {
+    for (const p of figPositions ?? []) {
       const bottom = p.y + p.height + 80;
       if (bottom > max) max = bottom;
     }
@@ -624,6 +781,8 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   }, [spans, richBlocks, figPositions]);
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
+    if (!figPositions) return;
+    initialLayoutRef.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
     const pos = figPositions[idx];
     dragRef.current = {
@@ -640,6 +799,8 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   }
 
   function startResize(e: React.PointerEvent<HTMLDivElement>, idx: number) {
+    if (!figPositions) return;
+    initialLayoutRef.current = false;
     const pos = figPositions[idx];
     dragRef.current = {
       figIndex: idx,
@@ -659,9 +820,10 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
     const { figIndex, startX, startY, origX, origY, origW, origH, mode } = dragRef.current;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    setFigPositions((prev) => {
-      const next = [...prev];
-      const cur = prev[figIndex];
+    setFigureLayout((prev) => {
+      if (!prev || prev.width !== containerWidth) return prev;
+      const next = [...prev.positions];
+      const cur = prev.positions[figIndex];
       if (mode === 'move') {
         next[figIndex] = {
           ...cur,
@@ -675,7 +837,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           height: Math.max(FIGURE_MIN_H, origH + dy),
         };
       }
-      return next;
+      return { ...prev, positions: next };
     });
   }
 
@@ -692,11 +854,13 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 2147483647,
+        // Leave the browser's maximum z-index available to body-level MyST
+        // hover-card portals (abbreviations, citations and cross-references).
+        zIndex: 2147483646,
         display: 'flex',
         flexDirection: 'column',
-        background: 'Canvas',
-        color: 'CanvasText',
+        background: isDark ? '#0f172a' : '#ffffff',
+        color: isDark ? '#e5e7eb' : '#111827',
         fontFamily: DEFAULT_TEXT_STYLE.fontFamily,
       }}
     >
@@ -709,7 +873,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           justifyContent: 'space-between',
           padding: '0 24px',
           borderBottom: '1px solid rgba(148,163,184,0.3)',
-          background: 'rgba(255,255,255,0.9)',
+          background: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.9)',
           backdropFilter: 'blur(12px)',
           boxSizing: 'border-box',
         }}
@@ -718,62 +882,127 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>
             Pretext Mode
           </div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>
+          <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
             {figures.length} draggable figure{figures.length !== 1 ? 's' : ''} · rendered via MyST
           </div>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            border: '1px solid rgba(15,23,42,0.2)',
-            borderRadius: 999,
-            padding: '10px 16px',
-            background: '#111827',
-            color: '#fff',
-            fontWeight: 800,
-            fontSize: 14,
-            cursor: 'pointer',
-          }}
-        >
-          Exit Pretext Mode
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            type="button"
+            onClick={nextTheme}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              width: 42,
+              height: 42,
+              border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
+              borderRadius: 999,
+              background: isDark ? '#1e293b' : '#ffffff',
+              color: isDark ? '#f8fafc' : '#111827',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 20,
+              cursor: 'pointer',
+            }}
+          >
+            <span aria-hidden="true">{isDark ? '☀' : '☾'}</span>
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
+              borderRadius: 999,
+              padding: '10px 16px',
+              background: isDark ? '#f8fafc' : '#111827',
+              color: isDark ? '#0f172a' : '#fff',
+              fontWeight: 800,
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            Exit Pretext Mode
+          </button>
+        </div>
       </header>
 
-      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', background: 'Canvas' }}>
+      <div
+        ref={scrollRef}
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          overscrollBehavior: 'contain',
+          background: isDark ? '#0f172a' : '#ffffff',
+        }}
+      >
         <div
-          ref={contentRef}
           style={{
-            position: 'relative',
-            maxWidth: 1400,
+            maxWidth: showOutline ? 1640 : 1400,
             margin: '0 auto',
-            padding: `${OVERLAY_PADDING}px`,
-            minHeight: contentHeight,
+            padding: `0 24px`,
+            display: 'grid',
+            gridTemplateColumns: showOutline ? 'minmax(0, 1fr) 250px' : 'minmax(0, 1fr)',
+            gap: showOutline ? 28 : 0,
+            alignItems: 'start',
             boxSizing: 'border-box',
           }}
         >
-          <WordCanvas
-            spans={spans}
-            width={containerWidth}
-            scrollContainerRef={scrollRef}
-          />
-          <MathCodeLayer spans={spans} scrollContainerRef={scrollRef} />
-          <RichBlockLayer richBlocks={richBlocks} scrollContainerRef={scrollRef} />
-
-          {figures.map((fig, i) => (
-            <FigureCard
-              key={i}
-              index={i}
-              fig={fig}
-              pos={figPositions[i] ?? { x: 0, y: 0, width: FIGURE_WIDTH_DEFAULT, height: FIGURE_HEIGHT_DEFAULT }}
-              isDragging={draggingIdx === i}
-              isResizing={resizingIdx === i}
-              onPointerDown={startDrag}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-              onResizePointerDown={startResize}
+          <div
+            ref={contentRef}
+            style={{
+              position: 'relative',
+              padding: `${OVERLAY_PADDING}px`,
+              minHeight: contentHeight,
+              boxSizing: 'border-box',
+            }}
+          >
+            <WordCanvas
+              spans={spans}
+              width={containerWidth}
+              scrollContainerRef={scrollRef}
+              isDark={isDark}
             />
-          ))}
+            <MathCodeLayer spans={spans} scrollContainerRef={scrollRef} isDark={isDark} />
+            <RichBlockLayer richBlocks={richBlocks} scrollContainerRef={scrollRef} />
+
+            {figPositions && figures.map((fig, i) => (
+              <FigureCard
+                key={i}
+                index={i}
+                fig={fig}
+                pos={figPositions[i]}
+                isDragging={draggingIdx === i}
+                isResizing={resizingIdx === i}
+                onPointerDown={startDrag}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onResizePointerDown={startResize}
+                isDark={isDark}
+              />
+            ))}
+          </div>
+          {showOutline && (
+            <aside
+              style={{
+                position: 'sticky',
+                top: 24,
+                maxHeight: 'calc(100vh - 140px)',
+                overflowY: 'auto',
+                marginTop: 40,
+                padding: '16px 12px',
+                border: '1px solid rgba(148,163,184,0.28)',
+                borderRadius: 12,
+                background: isDark ? 'rgba(30,41,59,0.88)' : 'rgba(248,250,252,0.82)',
+                boxSizing: 'border-box',
+              }}
+            >
+              <PretextOutline
+                headings={headingAnchors}
+                scrollContainerRef={scrollRef}
+                isDark={isDark}
+              />
+            </aside>
+          )}
         </div>
       </div>
 
@@ -799,6 +1028,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
 
 export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
   const references = useReferences();
+  const { isDark } = useThemeSwitcher();
   const [open, setOpen] = React.useState(false);
   const onClose = React.useCallback(() => setOpen(false), []);
 
@@ -826,15 +1056,29 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
           margin: '1.5rem 0',
           padding: '18px 20px',
           borderRadius: 18,
-          border: '1px solid rgba(148,163,184,0.28)',
-          background: 'rgba(248,250,252,0.92)',
+          border: `1px solid ${isDark ? 'rgba(148,163,184,0.38)' : 'rgba(148,163,184,0.28)'}`,
+          background: isDark ? 'rgba(30,41,59,0.92)' : 'rgba(248,250,252,0.92)',
           fontFamily: DEFAULT_TEXT_STYLE.fontFamily,
         }}
       >
-        <p style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#111827' }}>
+        <p
+          style={{
+            margin: '0 0 8px',
+            fontSize: 18,
+            fontWeight: 800,
+            color: isDark ? '#f8fafc' : '#111827',
+          }}
+        >
           Pretext Mode
         </p>
-        <p style={{ margin: '0 0 14px', fontSize: 14, lineHeight: 1.6, color: '#475569' }}>
+        <p
+          style={{
+            margin: '0 0 14px',
+            fontSize: 14,
+            lineHeight: 1.6,
+            color: isDark ? '#cbd5e1' : '#475569',
+          }}
+        >
           {figures.length > 0
             ? `Found ${figures.length} draggable figure${figures.length !== 1 ? 's' : ''}. Open Pretext Mode to drag them — text reflows around all figures simultaneously.`
             : 'Open Pretext Mode to see this article with draggable figures.'}
@@ -848,11 +1092,11 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
           type="button"
           onClick={() => setOpen(true)}
           style={{
-            border: '1px solid rgba(15,23,42,0.18)',
+            border: `1px solid ${isDark ? 'rgba(226,232,240,0.3)' : 'rgba(15,23,42,0.18)'}`,
             borderRadius: 999,
             padding: '10px 16px',
-            background: '#111827',
-            color: '#fff',
+            background: isDark ? '#f8fafc' : '#111827',
+            color: isDark ? '#0f172a' : '#fff',
             fontWeight: 800,
             fontSize: 14,
             cursor: 'pointer',
@@ -862,13 +1106,16 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
         </button>
       </section>
 
-      {open && (
-        <PretextOverlay
-          blocks={blocks}
-          figures={figures}
-          onClose={onClose}
-        />
-      )}
+      {open && typeof document !== 'undefined'
+        ? createPortal(
+            <PretextOverlay
+              blocks={blocks}
+              figures={figures}
+              onClose={onClose}
+            />,
+            document.body,
+          )
+        : null}
     </>
   );
 }

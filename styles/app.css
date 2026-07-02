@@ -22,3 +22,8 @@
 @import './backmatter.css';
 @import './search.css';
 @import './button.css';
+
+/* Keep the document width stable while full-screen reading modes lock body scroll. */
+html {
+  scrollbar-gutter: stable;
+}

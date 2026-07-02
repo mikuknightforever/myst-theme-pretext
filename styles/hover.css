@@ -2,7 +2,9 @@
   .hover-card-content {
     animation-duration: 0.6s;
     animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 10;
+    /* Hover cards are rendered in a body-level Radix portal. Keep them above
+       full-screen reading surfaces such as Pretext Mode. */
+    z-index: 2147483647;
   }
   .hover-card-content[data-side='top'] {
     animation-name: slideUp;
