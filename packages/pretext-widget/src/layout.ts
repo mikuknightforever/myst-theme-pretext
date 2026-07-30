@@ -21,6 +21,10 @@ export interface ObstacleRect {
   top: number;
   right: number;
   bottom: number;
+  /** Matching draggable figure, when this obstacle represents a figure card. */
+  figureIndex?: number;
+  /** True while the figure is still in its original article-flow position. */
+  inline?: boolean;
 }
 
 /** A single word with its inline formatting flags. */
@@ -211,6 +215,21 @@ function getLineSegments(
   if (cursor < rightEdge) segments.push([cursor, rightEdge]);
 
   return segments.filter(([s, e]) => e - s > 60);
+}
+
+function nextYAfterBlockingObstacles(
+  lineTop: number,
+  lineBottom: number,
+  obstacles: ObstacleRect[],
+  gap = 20,
+): number {
+  let nextY = lineTop + 1;
+  for (const obstacle of obstacles) {
+    if (lineBottom > obstacle.top && lineTop < obstacle.bottom) {
+      nextY = Math.max(nextY, obstacle.bottom + gap);
+    }
+  }
+  return nextY;
 }
 
 /**
@@ -432,6 +451,12 @@ export function layoutBlocks(
       const anchorY = Math.max(y, previousFigureAnchorY + minFigureAnchorSpacing);
       figureAnchors.push({ figureIndex: block.figureIndex, y: anchorY });
       previousFigureAnchorY = anchorY;
+      const inlineFigure = obstacles.find(
+        (obstacle) => obstacle.inline && obstacle.figureIndex === block.figureIndex,
+      );
+      if (inlineFigure) {
+        y = Math.max(y, anchorY + (inlineFigure.bottom - inlineFigure.top) + style.paragraphGap);
+      }
       continue;
     }
 
@@ -447,8 +472,11 @@ export function layoutBlocks(
 
     // ── Text blocks ─────────────────────────────────────────────────────────
     const blockStyle = styleForBlock(block, style);
-    // Headings are never deflected — they always span full width
-    const blockObstacles = block.type === 'heading' ? [] : obstacles;
+    // Inline figures reserve their height at their own figureAnchor above.
+    // Letting their absolute rectangles participate here can make a later
+    // figure block earlier paragraphs and create a large blank region.
+    const blockObstacles =
+      block.type === 'heading' ? [] : obstacles.filter((obstacle) => !obstacle.inline);
 
     // Extra vertical space before headings
     if (block.type === 'heading') y += Math.round(blockStyle.lineHeight * 0.6);
@@ -476,6 +504,13 @@ export function layoutBlocks(
         0,
         containerWidth,
       );
+      if (segments.length === 0) {
+        y = Math.max(
+          y + blockStyle.lineHeight,
+          nextYAfterBlockingObstacles(y, y + blockStyle.lineHeight, blockObstacles),
+        );
+        continue;
+      }
 
       const wiAtLineStart = wi;
       for (const [segStart, segEnd] of segments) {

@@ -6,6 +6,7 @@ import type { PretextWidget } from './types.js';
 import {
   collectBlocks,
   findAllDraggableNodes,
+  findImageUrl,
   layoutBlocks,
   DEFAULT_TEXT_STYLE,
 } from './layout.js';
@@ -22,6 +23,10 @@ const FIGURE_WIDTH_DEFAULT = 280;
 const FIGURE_HEIGHT_DEFAULT = 220;
 const FIGURE_MIN_W = 120;
 const FIGURE_MIN_H = 80;
+const FIGURE_INLINE_MAX_W = 820;
+const FIGURE_FALLBACK_ASPECT_RATIO = 1012 / 1800;
+const FIGURE_CAPTION_ESTIMATE_H = 62;
+const FIGURE_BLOCK_WIDTH_RATIO = 0.6;
 const OVERLAY_PADDING = 40;
 
 const PRETEXT_TEXT_STYLE = {
@@ -70,6 +75,7 @@ function getOpeningLayout(
 interface FigureInfo {
   mdastNode: any;
   label: string;
+  imageUrl: string | null;
 }
 
 interface FigurePosition {
@@ -77,6 +83,7 @@ interface FigurePosition {
   y: number;
   width: number;
   height: number;
+  inline: boolean;
 }
 
 interface DragState {
@@ -88,6 +95,130 @@ interface DragState {
   origW: number;
   origH: number;
   mode: 'move' | 'resize';
+}
+
+function findFirstImageNode(node: any): any | null {
+  if (!node) return null;
+  if (node.type === 'image') return node;
+  for (const child of node.children ?? []) {
+    const found = findFirstImageNode(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function parseDimension(value: unknown, relativeTo: number): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const percent = trimmed.match(/^([0-9.]+)%$/);
+  if (percent) return relativeTo * (Number(percent[1]) / 100);
+  const pixels = trimmed.match(/^([0-9.]+)px$/);
+  if (pixels) return Number(pixels[1]);
+  const plain = Number(trimmed);
+  return Number.isFinite(plain) ? plain : null;
+}
+
+function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): number {
+  if (loadedRatio && Number.isFinite(loadedRatio) && loadedRatio > 0) return loadedRatio;
+  const imageNode = findFirstImageNode(fig.mdastNode);
+  const naturalW = Number(imageNode?.width ?? imageNode?.naturalWidth ?? imageNode?.originalWidth);
+  const naturalH = Number(imageNode?.height ?? imageNode?.naturalHeight ?? imageNode?.originalHeight);
+  if (naturalW > 0 && naturalH > 0) return naturalH / naturalW;
+  return FIGURE_FALLBACK_ASPECT_RATIO;
+}
+
+function getFigureDisplaySize(
+  fig: FigureInfo,
+  containerWidth: number,
+  loadedRatio?: number,
+): { width: number; height: number } {
+  const articleLikeWidth = Math.max(FIGURE_MIN_W, Math.min(containerWidth, FIGURE_INLINE_MAX_W));
+  const imageNode = findFirstImageNode(fig.mdastNode);
+  const declaredWidth =
+    parseDimension(fig.mdastNode?.width, articleLikeWidth) ??
+    parseDimension(fig.mdastNode?.style?.width, articleLikeWidth) ??
+    parseDimension(imageNode?.width, articleLikeWidth);
+  const width = Math.round(
+    Math.max(
+      FIGURE_MIN_W,
+      Math.min(containerWidth, declaredWidth ?? Math.min(articleLikeWidth, FIGURE_WIDTH_DEFAULT * 2.6)),
+    ),
+  );
+  const declaredHeight =
+    parseDimension(fig.mdastNode?.height, width) ??
+    parseDimension(fig.mdastNode?.style?.height, width) ??
+    parseDimension(imageNode?.height, width);
+  const aspectRatio = getFigureNaturalAspectRatio(fig, loadedRatio);
+  const imageHeight = declaredHeight ?? Math.round(width * aspectRatio);
+  const hasCaption = (fig.mdastNode?.children ?? []).some((child: any) => child.type === 'caption');
+  const height = Math.round(
+    Math.max(FIGURE_MIN_H, imageHeight + (hasCaption ? FIGURE_CAPTION_ESTIMATE_H : 18)),
+  );
+  return { width, height };
+}
+
+function toObstacleRects(positions: FigurePosition[], containerWidth: number): ObstacleRect[] {
+  return positions.map((position, figureIndex) => {
+    // A wide card leaves only narrow gutters on either side. Treating those
+    // gutters as usable line segments produces text that appears to run under
+    // the figure/caption. Wide figures therefore remain block-level obstacles
+    // even after the user starts dragging them; smaller cards still get true
+    // text wrapping.
+    const blocksFullLine =
+      position.inline || position.width >= containerWidth * FIGURE_BLOCK_WIDTH_RATIO;
+    return {
+      left: blocksFullLine ? 0 : position.x,
+      top: position.y,
+      right: blocksFullLine ? containerWidth : position.x + position.width,
+      bottom: position.y + position.height,
+      figureIndex,
+      inline: position.inline,
+    };
+  });
+}
+
+function buildInitialFigurePositions(
+  blocks: ContentBlock[],
+  figures: FigureInfo[],
+  containerWidth: number,
+  imageRatios: Record<number, number>,
+): FigurePosition[] {
+  const sizes = figures.map((fig, index) =>
+    getFigureDisplaySize(fig, containerWidth, imageRatios[index]),
+  );
+  // Only the figure heights are needed to calculate a native document flow.
+  // Keeping every sizing obstacle at y=0 avoids using stale pre-layout
+  // coordinates while layoutBlocks reserves each height at its own anchor.
+  const sizingObstacles: ObstacleRect[] = sizes.map((size, figureIndex) => ({
+    left: 0,
+    top: 0,
+    right: containerWidth,
+    bottom: size.height,
+    figureIndex,
+    inline: true,
+  }));
+  const dimensionKey = sizes.map((size) => `${size.width}x${size.height}`).join(';');
+  const anchors = getOpeningLayout(
+    blocks,
+    `native-flow:${Math.round(containerWidth)}:${dimensionKey}`,
+    () =>
+      layoutBlocks(
+        blocks,
+        sizingObstacles,
+        containerWidth,
+        0,
+        PRETEXT_TEXT_STYLE,
+      ),
+  ).figureAnchors;
+  return figures.map((_, i) => ({
+    x: Math.max(0, Math.round((containerWidth - sizes[i].width) / 2)),
+    y: anchors[i]?.y ?? 40 + i * (sizes[i].height + 32),
+    width: sizes[i].width,
+    height: sizes[i].height,
+    inline: true,
+  }));
 }
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number {
@@ -430,6 +561,7 @@ const MemoIframe = React.memo(function MemoIframe({
         style={{
           width: '100%',
           height: iframeHeight,
+          background: '#ffffff',
           border: '1px solid rgba(0,0,0,0.1)',
           borderRadius: 6,
           display: 'block',
@@ -490,7 +622,7 @@ function RichBlockLayer({
             typeof iframeNode.height === 'number'
               ? iframeNode.height
               : parseInt(String(iframeNode.height ?? '400')) || 400;
-          const src = iframeNode.src ?? '';
+          const src = iframeNode.src ?? iframeNode.url ?? iframeNode.value ?? '';
           return (
             <div
               key={i}
@@ -556,6 +688,7 @@ function FigureCard({
   const active = isDragging || isResizing;
   return (
     <div
+      className="pretext-figure-card"
       onPointerDown={(e) => onPointerDown(e, index)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -609,7 +742,21 @@ function FigureCard({
         (float, margin, max-width) so the node fits the card.
       */}
       {/* Visual content: inside `legend` if present, otherwise all non-caption children */}
-      <div style={{ width: '100%', pointerEvents: 'none', float: 'none', margin: 0 }}>
+      <div
+        className="pretext-figure-body"
+        style={{
+          width: '100%',
+          minHeight: 0,
+          flex: '1 1 auto',
+          pointerEvents: 'none',
+          float: 'none',
+          margin: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         {(() => {
           const children: any[] = fig.mdastNode?.children ?? [];
           const legend = children.find((c) => c.type === 'legend');
@@ -689,9 +836,11 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
     width: number;
     positions: FigurePosition[];
   } | null>(null);
+  const [imageRatios, setImageRatios] = React.useState<Record<number, number>>({});
   const figPositions =
     figureLayout?.width === containerWidth ? figureLayout.positions : null;
   const initialLayoutRef = React.useRef(true);
+  const hasInteractedRef = React.useRef(false);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
@@ -699,33 +848,56 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let cancelled = false;
+    const missing = figures
+      .map((fig, index) => ({ fig, index }))
+      .filter(({ fig, index }) => fig.imageUrl && !imageRatios[index]);
+    if (missing.length === 0) return undefined;
+
+    Promise.all(
+      missing.map(
+        ({ fig, index }) =>
+          new Promise<{ index: number; ratio: number | null }>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              if (img.naturalWidth <= 0 || img.naturalHeight <= 0) {
+                resolve({ index, ratio: null });
+                return;
+              }
+              resolve({ index, ratio: img.naturalHeight / img.naturalWidth });
+            };
+            img.onerror = () => resolve({ index, ratio: null });
+            img.src = fig.imageUrl as string;
+          }),
+      ),
+    ).then((loaded) => {
+      if (cancelled) return;
+      setImageRatios((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const { index, ratio } of loaded) {
+          if (!ratio || current[index] === ratio) continue;
+          next[index] = ratio;
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [figures, imageRatios]);
+
+  React.useEffect(() => {
     if (typeof document === 'undefined' || containerWidth <= 0) return;
+    if (hasInteractedRef.current && figureLayout?.width === containerWidth) return;
     initialLayoutRef.current = true;
-    const widthKey = Math.round(containerWidth);
-    const { figureAnchors } = getOpeningLayout(
-      blocks,
-      `base:${widthKey}`,
-      () =>
-        layoutBlocks(
-          blocks,
-          [],
-          containerWidth,
-          0,
-          PRETEXT_TEXT_STYLE,
-          undefined,
-          FIGURE_HEIGHT_DEFAULT + 32,
-        ),
-    );
     setFigureLayout({
       width: containerWidth,
-      positions: figures.map((_, i) => ({
-        x: Math.max(0, containerWidth - FIGURE_WIDTH_DEFAULT - 24),
-        y: figureAnchors[i]?.y ?? 40 + i * (FIGURE_HEIGHT_DEFAULT + 32),
-        width: FIGURE_WIDTH_DEFAULT,
-        height: FIGURE_HEIGHT_DEFAULT,
-      })),
+      positions: buildInitialFigurePositions(blocks, figures, containerWidth, imageRatios),
     });
-  }, [blocks, figures, containerWidth]);
+  }, [blocks, figures, containerWidth, imageRatios, figureLayout?.width]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -735,15 +907,12 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const obstacles: ObstacleRect[] = (figPositions ?? []).map((p) => ({
-    left: p.x,
-    top: p.y,
-    right: p.x + p.width,
-    bottom: p.y + p.height,
-  }));
+  const obstacles: ObstacleRect[] = figPositions
+    ? toObstacleRects(figPositions, containerWidth)
+    : [];
 
   const positionKey = figPositions
-    ?.map((p) => `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.width)},${Math.round(p.height)}`)
+    ?.map((p) => `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.width)},${Math.round(p.height)},${p.inline ? 1 : 0}`)
     .join(';') ?? '';
   const { spans, richBlocks, headingAnchors } = React.useMemo(() => {
     if (typeof document === 'undefined' || containerWidth <= 0 || !figPositions) {
@@ -782,6 +951,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     if (!figPositions) return;
+    hasInteractedRef.current = true;
     initialLayoutRef.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
     const pos = figPositions[idx];
@@ -800,6 +970,7 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
 
   function startResize(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     if (!figPositions) return;
+    hasInteractedRef.current = true;
     initialLayoutRef.current = false;
     const pos = figPositions[idx];
     dragRef.current = {
@@ -829,12 +1000,14 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           ...cur,
           x: Math.max(0, Math.min(containerWidth - cur.width, origX + dx)),
           y: Math.max(0, origY + dy),
+          inline: false,
         };
       } else {
         next[figIndex] = {
           ...cur,
-          width: Math.max(FIGURE_MIN_W, origW + dx),
+          width: Math.min(containerWidth, Math.max(FIGURE_MIN_W, origW + dx)),
           height: Math.max(FIGURE_MIN_H, origH + dy),
+          inline: false,
         };
       }
       return { ...prev, positions: next };
@@ -864,6 +1037,33 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
         fontFamily: DEFAULT_TEXT_STYLE.fontFamily,
       }}
     >
+      <style>
+        {`
+          .pretext-figure-card figure,
+          .pretext-figure-card .figure {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+          }
+          .pretext-figure-body > * {
+            width: 100%;
+            max-width: 100%;
+          }
+          .pretext-figure-body img,
+          .pretext-figure-body svg {
+            display: block;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            margin: 0 auto;
+          }
+          .pretext-figure-card figcaption {
+            display: none;
+          }
+        `}
+      </style>
       <header
         style={{
           height: 68,
@@ -1044,6 +1244,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
     const figs: FigureInfo[] = figNodes.map((figNode, i) => ({
       mdastNode: figNode,
       label: `Figure ${i + 1}`,
+      imageUrl: findImageUrl(figNode),
     }));
 
     return { blocks: blks, figures: figs };
