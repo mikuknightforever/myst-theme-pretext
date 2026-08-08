@@ -82,6 +82,8 @@ export interface LayoutResult {
   richBlocks: PlacedRichBlock[];
   figureAnchors: FigureAnchor[];
   headingAnchors: HeadingAnchor[];
+  /** First available vertical position after every block in this layout. */
+  contentBottom: number;
 }
 
 /** A positioned word span ready for rendering. */
@@ -435,7 +437,15 @@ export function layoutBlocks(
 ): LayoutResult {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  if (!ctx) return { spans: [], richBlocks: [], figureAnchors: [], headingAnchors: [] };
+  if (!ctx) {
+    return {
+      spans: [],
+      richBlocks: [],
+      figureAnchors: [],
+      headingAnchors: [],
+      contentBottom: startY,
+    };
+  }
 
   const spans: WordSpan[] = [];
   const richBlocks: PlacedRichBlock[] = [];
@@ -568,7 +578,7 @@ export function layoutBlocks(
       : style.paragraphGap;
   }
 
-  return { spans, richBlocks, figureAnchors, headingAnchors };
+  return { spans, richBlocks, figureAnchors, headingAnchors, contentBottom: y };
 }
 
 // ── Legacy helpers (kept for external use) ──────────────────────────────────

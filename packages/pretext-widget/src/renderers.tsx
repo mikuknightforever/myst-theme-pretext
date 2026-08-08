@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom';
 import { useReferences, useThemeSwitcher } from '@myst-theme/providers';
 import { MyST } from 'myst-to-react';
 import type { PretextWidget } from './types.js';
+import { ColumnSelector } from './ColumnSelector.js';
+import {
+  layoutBlocksInColumns,
+  type ColumnCount,
+  type ColumnLayoutOptions,
+} from './column-layout.js';
 import {
   collectBlocks,
   findAllDraggableNodes,
@@ -27,6 +33,8 @@ const FIGURE_INLINE_MAX_W = 820;
 const FIGURE_FALLBACK_ASPECT_RATIO = 1012 / 1800;
 const FIGURE_CAPTION_ESTIMATE_H = 62;
 const FIGURE_BLOCK_WIDTH_RATIO = 0.6;
+const COLUMN_GAP = 32;
+const COLUMN_MIN_WIDTH = 320;
 const OVERLAY_PADDING = 40;
 
 const PRETEXT_TEXT_STYLE = {
@@ -41,6 +49,7 @@ const EMPTY_LAYOUT: LayoutResult = {
   richBlocks: [],
   figureAnchors: [],
   headingAnchors: [],
+  contentBottom: 0,
 };
 
 /**
@@ -184,6 +193,7 @@ function buildInitialFigurePositions(
   figures: FigureInfo[],
   containerWidth: number,
   imageRatios: Record<number, number>,
+  columnOptions: ColumnLayoutOptions,
 ): FigurePosition[] {
   const sizes = figures.map((fig, index) =>
     getFigureDisplaySize(fig, containerWidth, imageRatios[index]),
@@ -202,14 +212,15 @@ function buildInitialFigurePositions(
   const dimensionKey = sizes.map((size) => `${size.width}x${size.height}`).join(';');
   const anchors = getOpeningLayout(
     blocks,
-    `native-flow:${Math.round(containerWidth)}:${dimensionKey}`,
+    `native-flow:${Math.round(containerWidth)}:${columnOptions.count}:${columnOptions.gap}:${dimensionKey}`,
     () =>
-      layoutBlocks(
+      layoutBlocksInColumns(
         blocks,
         sizingObstacles,
         containerWidth,
         0,
         PRETEXT_TEXT_STYLE,
+        columnOptions,
       ),
   ).figureAnchors;
   return figures.map((_, i) => ({
@@ -831,19 +842,36 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
   const showOutline = useMediaQuery('(min-width: 1180px)');
+  const [requestedColumnCount, setRequestedColumnCount] = React.useState<ColumnCount>(1);
+  const maxColumnCount = Math.max(
+    1,
+    Math.min(
+      3,
+      Math.floor((Math.max(0, containerWidth) + COLUMN_GAP) / (COLUMN_MIN_WIDTH + COLUMN_GAP)),
+    ),
+  ) as ColumnCount;
+  const columnCount = Math.min(requestedColumnCount, maxColumnCount) as ColumnCount;
+  const columnOptions: ColumnLayoutOptions = {
+    count: columnCount,
+    gap: COLUMN_GAP,
+  };
 
   const [figureLayout, setFigureLayout] = React.useState<{
     width: number;
+    columns: ColumnCount;
     positions: FigurePosition[];
   } | null>(null);
   const [imageRatios, setImageRatios] = React.useState<Record<number, number>>({});
   const figPositions =
-    figureLayout?.width === containerWidth ? figureLayout.positions : null;
+    figureLayout?.width === containerWidth && figureLayout?.columns === columnCount
+      ? figureLayout.positions
+      : null;
   const initialLayoutRef = React.useRef(true);
   const hasInteractedRef = React.useRef(false);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
+  const pendingColumnHeadingRef = React.useRef<string | null>(null);
   const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
 
@@ -891,13 +919,38 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
 
   React.useEffect(() => {
     if (typeof document === 'undefined' || containerWidth <= 0) return;
-    if (hasInteractedRef.current && figureLayout?.width === containerWidth) return;
+    const layoutModeChanged =
+      figureLayout != null &&
+      (figureLayout.width !== containerWidth || figureLayout.columns !== columnCount);
+    if (layoutModeChanged) hasInteractedRef.current = false;
+    if (
+      hasInteractedRef.current &&
+      figureLayout?.width === containerWidth &&
+      figureLayout?.columns === columnCount
+    ) {
+      return;
+    }
     initialLayoutRef.current = true;
     setFigureLayout({
       width: containerWidth,
-      positions: buildInitialFigurePositions(blocks, figures, containerWidth, imageRatios),
+      columns: columnCount,
+      positions: buildInitialFigurePositions(
+        blocks,
+        figures,
+        containerWidth,
+        imageRatios,
+        columnOptions,
+      ),
     });
-  }, [blocks, figures, containerWidth, imageRatios, figureLayout?.width]);
+  }, [
+    blocks,
+    figures,
+    containerWidth,
+    imageRatios,
+    columnCount,
+    figureLayout?.width,
+    figureLayout?.columns,
+  ]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -919,17 +972,34 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
       return EMPTY_LAYOUT;
     }
     const calculate = () =>
-      layoutBlocks(blocks, obstacles, containerWidth, 0, PRETEXT_TEXT_STYLE);
+      layoutBlocksInColumns(
+        blocks,
+        obstacles,
+        containerWidth,
+        0,
+        PRETEXT_TEXT_STYLE,
+        columnOptions,
+      );
     if (!initialLayoutRef.current) return calculate();
     return getOpeningLayout(
       blocks,
-      `initial:${Math.round(containerWidth)}:${positionKey}`,
+      `initial:${Math.round(containerWidth)}:${columnCount}:${COLUMN_GAP}:${positionKey}`,
       calculate,
     );
     // `positionKey` captures every obstacle coordinate without depending on a
     // newly allocated obstacles array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocks, containerWidth, positionKey]);
+  }, [blocks, containerWidth, columnCount, positionKey]);
+
+  React.useEffect(() => {
+    const pendingHeadingId = pendingColumnHeadingRef.current;
+    const scrollContainer = scrollRef.current;
+    if (!pendingHeadingId || !scrollContainer) return;
+    const target = headingAnchors.find((heading) => heading.id === pendingHeadingId);
+    if (!target) return;
+    scrollContainer.scrollTop = Math.max(0, target.y - 16);
+    pendingColumnHeadingRef.current = null;
+  }, [headingAnchors]);
 
   // Avoid Math.max(...largeArray) stack overflow — use a loop instead.
   const contentHeight = React.useMemo(() => {
@@ -948,6 +1018,17 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
     }
     return max;
   }, [spans, richBlocks, figPositions]);
+
+  function changeColumnCount(nextCount: ColumnCount) {
+    const scrollTop = scrollRef.current?.scrollTop ?? 0;
+    let activeHeading: HeadingAnchor | undefined;
+    for (const heading of headingAnchors) {
+      if (heading.y <= scrollTop + 80) activeHeading = heading;
+      else break;
+    }
+    pendingColumnHeadingRef.current = activeHeading?.id ?? null;
+    setRequestedColumnCount(nextCount);
+  }
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     if (!figPositions) return;
@@ -1087,6 +1168,12 @@ const PretextOverlay = React.memo(function PretextOverlay({ blocks, figures, onC
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ColumnSelector
+            value={columnCount}
+            maxColumns={maxColumnCount}
+            onChange={changeColumnCount}
+            isDark={isDark}
+          />
           <button
             type="button"
             onClick={nextTheme}
