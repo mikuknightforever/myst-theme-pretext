@@ -14,6 +14,7 @@ export function FigureCard({
   onResizePointerDown,
   index,
   isDark,
+  onCaptionHeightChange,
 }: {
   fig: FigureInfo;
   pos: FigurePosition;
@@ -26,11 +27,23 @@ export function FigureCard({
   onResizePointerDown: (e: React.PointerEvent<HTMLDivElement>, idx: number) => void;
   index: number;
   isDark: boolean;
+  onCaptionHeightChange?: (index: number, height: number) => void;
 }) {
   const active = isDragging || isResizing;
+  const captionRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    const element = captionRef.current;
+    if (!element || !onCaptionHeightChange || !pos.inline) return;
+    const report = () => onCaptionHeightChange(index, Math.ceil(element.offsetHeight) + 4);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [index, pos.inline, onCaptionHeightChange]);
   return (
     <div
       className="pretext-figure-card"
+      data-pretext-figure-index={index}
       onPointerDown={(e) => onPointerDown(e, index)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -102,7 +115,10 @@ export function FigureCard({
         if (!cap) return null;
         return (
           <div
+            ref={captionRef}
+            className="pretext-figure-caption"
             style={{
+              flexShrink: 0,
               padding: '6px 10px 8px',
               fontSize: 11,
               lineHeight: 1.4,

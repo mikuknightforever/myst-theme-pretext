@@ -1,26 +1,24 @@
 import * as React from 'react';
 import { useThemeSwitcher } from '@myst-theme/providers';
-import {
-  layoutBlocksInColumns,
-  type ColumnCount,
-  type ColumnLayoutOptions,
-} from '../column-layout.js';
+import { type ColumnCount, type ColumnLayoutOptions } from '../column-layout.js';
 import {
   COLUMN_GAP,
   COLUMN_MIN_WIDTH,
+  COLUMN_PAGE_GAP,
+  COLUMN_PAGE_HEIGHT,
   FIGURE_MIN_H,
   FIGURE_MIN_W,
   OVERLAY_PADDING,
-  PRETEXT_TEXT_STYLE,
 } from '../config.js';
 import { FigureCard } from '../figures/FigureCard.js';
-import { buildInitialFigurePositions, toObstacleRects } from '../figure-layout.js';
+import { buildInitialFigurePositions, layoutWithFigures } from '../figure-layout.js';
 import { useContainerWidth, useImageRatios, useMediaQuery } from '../hooks.js';
-import { getOpeningLayout } from '../layout-cache.js';
-import { DEFAULT_TEXT_STYLE } from '../layout.js';
-import type { ContentBlock, HeadingAnchor, LayoutResult, ObstacleRect } from '../layout.js';
+import { DEFAULT_TEXT_STYLE, inlineMeasurementKey, styleForBlock } from '../layout.js';
+import type { ContentBlock, HeadingAnchor, InlineMetrics, LayoutResult } from '../layout.js';
 import type { DragState, FigureInfo, FigureLayoutState } from '../model.js';
-import { MathCodeLayer } from '../layers/MathCodeLayer.js';
+import { readingSettingsKey, readingTextStyle, type ReadingSettings } from '../reading-settings.js';
+import { useReadingSettings } from '../useReadingSettings.js';
+import { InlineMeasurementLayer, MathCodeLayer } from '../layers/MathCodeLayer.js';
 import { RichBlockLayer } from '../layers/RichBlockLayer.js';
 import { WordCanvas } from '../layers/WordCanvas.js';
 import { PretextOutline } from './PretextOutline.js';
@@ -33,6 +31,7 @@ const EMPTY_LAYOUT: LayoutResult = {
   headingAnchors: [],
   contentBottom: 0,
 };
+const EMPTY_HEIGHTS: Record<number, number> = {};
 
 interface OverlayProps {
   blocks: ContentBlock[];
@@ -46,6 +45,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   onClose,
 }: OverlayProps) {
   const { isDark, nextTheme } = useThemeSwitcher();
+  const { settings: readingSettings, updateSettings, resetSettings } = useReadingSettings();
+  const readingKey = readingSettingsKey(readingSettings);
+  const textStyle = React.useMemo(() => readingTextStyle(readingSettings), [readingKey]);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
   const showOutline = useMediaQuery('(min-width: 1180px)');
@@ -61,57 +63,74 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   const columnOptions: ColumnLayoutOptions = {
     count: columnCount,
     gap: COLUMN_GAP,
+    columnHeight: COLUMN_PAGE_HEIGHT,
+    bandGap: COLUMN_PAGE_GAP,
   };
 
   const [figureLayout, setFigureLayout] = React.useState<FigureLayoutState | null>(null);
+  const richMeasurementScope = `${Math.round(containerWidth)}:${columnCount}:${readingKey}`;
+  const [richMeasurements, setRichMeasurements] = React.useState<{
+    scope: string;
+    heights: Record<number, number>;
+  }>({ scope: '', heights: {} });
+  const richBlockHeights =
+    richMeasurements.scope === richMeasurementScope ? richMeasurements.heights : EMPTY_HEIGHTS;
+  const [inlineMetrics, setInlineMetrics] = React.useState<Record<string, InlineMetrics>>({});
+  const [captionMeasurements, setCaptionMeasurements] = React.useState<{
+    scope: string;
+    heights: Record<number, number>;
+  }>({ scope: '', heights: {} });
+  const captionHeights =
+    captionMeasurements.scope === richMeasurementScope
+      ? captionMeasurements.heights
+      : EMPTY_HEIGHTS;
+  const updateCaptionHeight = React.useCallback(
+    (index: number, height: number) => {
+      setCaptionMeasurements((current) => {
+        const heights = current.scope === richMeasurementScope ? current.heights : {};
+        if (heights[index] === height) return current;
+        return { scope: richMeasurementScope, heights: { ...heights, [index]: height } };
+      });
+    },
+    [richMeasurementScope],
+  );
+  const measuredBlocks = React.useMemo(() => {
+    let fallbackIndex = 0;
+    return blocks.map((block) => {
+      if (block.type === 'richBlock') {
+        const index = block.richBlockIndex ?? fallbackIndex;
+        fallbackIndex += 1;
+        const measuredHeight = richBlockHeights[index];
+        return measuredHeight == null ? block : { ...block, estimatedHeight: measuredHeight };
+      }
+      if (block.type === 'figureAnchor') return block;
+      const blockStyle = styleForBlock(block, textStyle);
+      let changed = false;
+      const words = block.words.map((word) => {
+        if (!word.math && !word.code && !word.semanticNode) return word;
+        const metrics = inlineMetrics[inlineMeasurementKey(word, blockStyle)];
+        if (!metrics) {
+          return word;
+        }
+        changed = true;
+        return { ...word, measuredWidth: metrics.width, measuredHeight: metrics.height };
+      });
+      return changed ? { ...block, words } : block;
+    });
+  }, [blocks, inlineMetrics, richBlockHeights, textStyle]);
   const imageRatios = useImageRatios(figures);
-  const figPositions =
-    figureLayout?.width === containerWidth && figureLayout?.columns === columnCount
+  const manualPositions =
+    figureLayout?.width === containerWidth &&
+    figureLayout?.columns === columnCount &&
+    figureLayout?.readingKey === readingKey
       ? figureLayout.positions
       : null;
-  const initialLayoutRef = React.useRef(true);
-  const hasInteractedRef = React.useRef(false);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<DragState | null>(null);
-  const pendingColumnHeadingRef = React.useRef<string | null>(null);
+  const pendingLayoutHeadingRef = React.useRef<string | null>(null);
   const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
   const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
-
-  React.useEffect(() => {
-    if (typeof document === 'undefined' || containerWidth <= 0) return;
-    const layoutModeChanged =
-      figureLayout != null &&
-      (figureLayout.width !== containerWidth || figureLayout.columns !== columnCount);
-    if (layoutModeChanged) hasInteractedRef.current = false;
-    if (
-      hasInteractedRef.current &&
-      figureLayout?.width === containerWidth &&
-      figureLayout?.columns === columnCount
-    ) {
-      return;
-    }
-    initialLayoutRef.current = true;
-    setFigureLayout({
-      width: containerWidth,
-      columns: columnCount,
-      positions: buildInitialFigurePositions(
-        blocks,
-        figures,
-        containerWidth,
-        imageRatios,
-        columnOptions,
-      ),
-    });
-  }, [
-    blocks,
-    figures,
-    containerWidth,
-    imageRatios,
-    columnCount,
-    figureLayout?.width,
-    figureLayout?.columns,
-  ]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -121,56 +140,80 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const obstacles: ObstacleRect[] = figPositions
-    ? toObstacleRects(figPositions, containerWidth)
-    : [];
-
-  const positionKey =
-    figPositions
-      ?.map(
-        (p) =>
-          `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.width)},${Math.round(p.height)},${p.inline ? 1 : 0}`,
-      )
-      .join(';') ?? '';
-  const { spans, richBlocks, headingAnchors } = React.useMemo(() => {
-    if (typeof document === 'undefined' || containerWidth <= 0 || !figPositions) {
-      return EMPTY_LAYOUT;
+  const { layout, positions: figPositions } = React.useMemo(() => {
+    if (typeof document === 'undefined' || containerWidth <= 0) {
+      return { layout: EMPTY_LAYOUT, positions: null };
     }
-    const calculate = () =>
-      layoutBlocksInColumns(
-        blocks,
-        obstacles,
-        containerWidth,
-        0,
-        PRETEXT_TEXT_STYLE,
-        columnOptions,
-      );
-    if (!initialLayoutRef.current) return calculate();
-    return getOpeningLayout(
-      blocks,
-      `initial:${Math.round(containerWidth)}:${columnCount}:${COLUMN_GAP}:${positionKey}`,
-      calculate,
+    const initial = buildInitialFigurePositions(
+      measuredBlocks,
+      figures,
+      containerWidth,
+      imageRatios,
+      columnOptions,
+      textStyle,
+      captionHeights,
     );
-    // `positionKey` captures every obstacle coordinate without depending on a
-    // newly allocated obstacles array.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocks, containerWidth, columnCount, positionKey]);
+    const candidates = initial.map((position, index) =>
+      manualPositions?.[index] && !manualPositions[index].inline
+        ? manualPositions[index]
+        : position,
+    );
+    return layoutWithFigures(measuredBlocks, candidates, containerWidth, textStyle, columnOptions);
+  }, [
+    measuredBlocks,
+    figures,
+    containerWidth,
+    imageRatios,
+    columnCount,
+    textStyle,
+    manualPositions,
+    captionHeights,
+  ]);
+  const { spans, richBlocks, headingAnchors } = layout;
+
+  const updateRichBlockHeight = React.useCallback(
+    (index: number, height: number) => {
+      setRichMeasurements((current) => {
+        const heights = current.scope === richMeasurementScope ? current.heights : {};
+        if (Math.abs((heights[index] ?? 0) - height) < 2) {
+          return current.scope === richMeasurementScope
+            ? current
+            : { scope: richMeasurementScope, heights };
+        }
+        return {
+          scope: richMeasurementScope,
+          heights: { ...heights, [index]: height },
+        };
+      });
+    },
+    [richMeasurementScope],
+  );
+
+  const updateInlineMetrics = React.useCallback((metrics: Record<string, InlineMetrics>) => {
+    setInlineMetrics((current) => {
+      const changed = Object.entries(metrics).some(
+        ([key, value]) =>
+          current[key]?.width !== value.width || current[key]?.height !== value.height,
+      );
+      return changed ? { ...current, ...metrics } : current;
+    });
+  }, []);
 
   React.useEffect(() => {
-    const pendingHeadingId = pendingColumnHeadingRef.current;
+    const pendingHeadingId = pendingLayoutHeadingRef.current;
     const scrollContainer = scrollRef.current;
     if (!pendingHeadingId || !scrollContainer) return;
     const target = headingAnchors.find((heading) => heading.id === pendingHeadingId);
     if (!target) return;
     scrollContainer.scrollTop = Math.max(0, target.y - 16);
-    pendingColumnHeadingRef.current = null;
+    pendingLayoutHeadingRef.current = null;
   }, [headingAnchors]);
 
   // Avoid Math.max(...largeArray) stack overflow — use a loop instead.
   const contentHeight = React.useMemo(() => {
     let max = 400;
     for (const s of spans) {
-      const bottom = s.y + s.style.lineHeight + 80;
+      const bottom = s.y + (s.height ?? s.style.lineHeight) + 80;
       if (bottom > max) max = bottom;
     }
     for (const b of richBlocks) {
@@ -184,21 +227,39 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     return max;
   }, [spans, richBlocks, figPositions]);
 
-  function changeColumnCount(nextCount: ColumnCount) {
+  function rememberReadingPosition() {
     const scrollTop = scrollRef.current?.scrollTop ?? 0;
     let activeHeading: HeadingAnchor | undefined;
     for (const heading of headingAnchors) {
       if (heading.y <= scrollTop + 80) activeHeading = heading;
       else break;
     }
-    pendingColumnHeadingRef.current = activeHeading?.id ?? null;
+    pendingLayoutHeadingRef.current = activeHeading?.id ?? null;
+  }
+
+  function changeColumnCount(nextCount: ColumnCount) {
+    rememberReadingPosition();
     setRequestedColumnCount(nextCount);
+  }
+
+  function changeReadingSettings(patch: Partial<ReadingSettings>) {
+    rememberReadingPosition();
+    updateSettings(patch);
+  }
+
+  function restoreReadingSettings() {
+    rememberReadingPosition();
+    resetSettings();
   }
 
   function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     if (!figPositions) return;
-    hasInteractedRef.current = true;
-    initialLayoutRef.current = false;
+    setFigureLayout({
+      width: containerWidth,
+      columns: columnCount,
+      readingKey,
+      positions: figPositions,
+    });
     e.currentTarget.setPointerCapture(e.pointerId);
     const pos = figPositions[idx];
     dragRef.current = {
@@ -216,8 +277,12 @@ export const PretextOverlay = React.memo(function PretextOverlay({
 
   function startResize(e: React.PointerEvent<HTMLDivElement>, idx: number) {
     if (!figPositions) return;
-    hasInteractedRef.current = true;
-    initialLayoutRef.current = false;
+    setFigureLayout({
+      width: containerWidth,
+      columns: columnCount,
+      readingKey,
+      positions: figPositions,
+    });
     const pos = figPositions[idx];
     dragRef.current = {
       figIndex: idx,
@@ -315,7 +380,10 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         columnCount={columnCount}
         maxColumnCount={maxColumnCount}
         isDark={isDark}
+        readingSettings={readingSettings}
         onColumnChange={changeColumnCount}
+        onReadingSettingsChange={changeReadingSettings}
+        onReadingSettingsReset={restoreReadingSettings}
         onThemeChange={nextTheme}
         onClose={onClose}
       />
@@ -331,7 +399,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
       >
         <div
           style={{
-            maxWidth: showOutline ? 1640 : 1400,
+            maxWidth: readingSettings.readingWidth + (showOutline ? 240 : 0),
             margin: '0 auto',
             padding: `0 24px`,
             display: 'grid',
@@ -350,14 +418,45 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               boxSizing: 'border-box',
             }}
           >
+            {layout.columnBands?.map((band, index) => (
+              <div
+                key={index}
+                className="pretext-band-boundary"
+                data-pretext-band-index={index}
+                data-pretext-band-top={band.top}
+                data-pretext-band-bottom={band.bottom}
+                data-pretext-column-bottoms={JSON.stringify(band.columnBottoms)}
+                data-pretext-breaks={JSON.stringify(band.breaks)}
+                role={index ? 'separator' : undefined}
+                aria-label={index ? "Continue from the previous group's last column" : undefined}
+                aria-hidden={index ? undefined : true}
+                style={{
+                  position: 'absolute',
+                  top: band.top - COLUMN_PAGE_GAP / 2,
+                  left: 0,
+                  width: containerWidth,
+                  borderTop: index ? '1px solid rgba(148,163,184,0.28)' : undefined,
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
             <WordCanvas
               spans={spans}
               width={containerWidth}
               scrollContainerRef={scrollRef}
               isDark={isDark}
             />
+            <InlineMeasurementLayer
+              blocks={blocks}
+              textStyle={textStyle}
+              onMetricsChange={updateInlineMetrics}
+            />
             <MathCodeLayer spans={spans} scrollContainerRef={scrollRef} isDark={isDark} />
-            <RichBlockLayer richBlocks={richBlocks} scrollContainerRef={scrollRef} />
+            <RichBlockLayer
+              richBlocks={richBlocks}
+              textStyle={textStyle}
+              onHeightChange={updateRichBlockHeight}
+            />
 
             {figPositions &&
               figures.map((fig, i) => (
@@ -373,6 +472,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   onPointerUp={endDrag}
                   onPointerCancel={endDrag}
                   onResizePointerDown={startResize}
+                  onCaptionHeightChange={updateCaptionHeight}
                   isDark={isDark}
                 />
               ))}
@@ -404,16 +504,14 @@ export const PretextOverlay = React.memo(function PretextOverlay({
 
       <div
         style={{
-          position: 'fixed',
-          left: 24,
-          bottom: 18,
-          padding: '8px 12px',
-          borderRadius: 999,
-          background: 'rgba(15,23,42,0.78)',
-          color: 'white',
+          flex: '0 0 auto',
+          padding: '6px 24px 8px',
+          borderTop: '1px solid rgba(148,163,184,0.2)',
+          background: isDark ? '#0f172a' : '#ffffff',
+          color: isDark ? '#cbd5e1' : '#475569',
           fontSize: 12,
+          lineHeight: 1.35,
           pointerEvents: 'none',
-          backdropFilter: 'blur(10px)',
         }}
       >
         Drag to move · drag corner handle to resize · text reflows · Esc to exit

@@ -17,6 +17,7 @@ export interface FigurePosition {
 export interface FigureLayoutState {
   width: number;
   columns: ColumnCount;
+  readingKey: string;
   positions: FigurePosition[];
 }
 

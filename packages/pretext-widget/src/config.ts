@@ -10,6 +10,8 @@ export const FIGURE_CAPTION_ESTIMATE_H = 62;
 export const FIGURE_BLOCK_WIDTH_RATIO = 0.6;
 export const COLUMN_GAP = 32;
 export const COLUMN_MIN_WIDTH = 320;
+export const COLUMN_PAGE_HEIGHT = 980;
+export const COLUMN_PAGE_GAP = 24;
 export const OVERLAY_PADDING = 40;
 
 export const PRETEXT_TEXT_STYLE = {

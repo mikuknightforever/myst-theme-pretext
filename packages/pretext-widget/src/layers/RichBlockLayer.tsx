@@ -1,8 +1,70 @@
 import * as React from 'react';
 import { MyST } from 'myst-to-react';
-import type { PlacedRichBlock } from '../layout.js';
+import type { PlacedRichBlock, TextStyle } from '../layout.js';
 
-const VIEWPORT_BUFFER = 500;
+function useMeasuredBlockHeight(
+  ref: React.RefObject<HTMLDivElement | null>,
+  richBlockIndex: number,
+  onHeightChange?: (richBlockIndex: number, height: number) => void,
+) {
+  React.useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || !onHeightChange) return;
+
+    let frame = 0;
+    const report = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        // offsetHeight includes the horizontal scrollbar, so following text
+        // can never be painted underneath it.
+        onHeightChange(richBlockIndex, Math.ceil(element.offsetHeight));
+      });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [onHeightChange, ref, richBlockIndex]);
+}
+
+function MeasuredRichBlock({
+  block,
+  children,
+  onHeightChange,
+}: {
+  block: PlacedRichBlock;
+  children: React.ReactNode;
+  onHeightChange?: (richBlockIndex: number, height: number) => void;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  useMeasuredBlockHeight(ref, block.richBlockIndex, onHeightChange);
+  return (
+    <div
+      ref={ref}
+      className="pretext-rich-block"
+      data-pretext-rich-index={block.richBlockIndex}
+      data-pretext-block-kind={block.node?.type}
+      style={{
+        position: 'absolute',
+        left: block.x,
+        top: block.y,
+        width: block.width,
+        boxSizing: 'border-box',
+        display: 'flow-root',
+        pointerEvents: 'auto',
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        overscrollBehaviorX: 'contain',
+        touchAction: 'pan-x',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 const MemoEquation = React.memo(function MemoEquation({ node }: { node: any }) {
   return <MyST ast={[node]} />;
@@ -43,32 +105,40 @@ const MemoIframe = React.memo(function MemoIframe({
 /** Block math and interactive iframe layer. */
 export function RichBlockLayer({
   richBlocks,
-  scrollContainerRef,
+  textStyle,
+  onHeightChange,
 }: {
   richBlocks: PlacedRichBlock[];
-  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  textStyle: TextStyle;
+  onHeightChange?: (richBlockIndex: number, height: number) => void;
 }) {
-  const [scrollTop, setScrollTop] = React.useState(0);
-
-  React.useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const onScroll = () => setScrollTop(el.scrollTop);
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [scrollContainerRef]);
-
-  const viewH = scrollContainerRef.current?.clientHeight ?? 600;
-  const yMin = scrollTop - VIEWPORT_BUFFER;
-  const yMax = scrollTop + viewH + VIEWPORT_BUFFER;
-
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+    // Keep intrinsic block measurements alive outside the viewport. Otherwise
+    // scrolling replaces estimates piecemeal and changes the paper's geometry.
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        pointerEvents: 'none',
+        fontFamily: textStyle.fontFamily,
+        fontSize: textStyle.fontSize,
+        lineHeight: `${textStyle.lineHeight}px`,
+        fontWeight: textStyle.fontWeight,
+      }}
+    >
+      {/* The flow engine owns block spacing. Native equation margins otherwise
+          get counted once by measurement and again as paragraph separation.
+          Only Pretext display equations are normalized; article mode, inline
+          math, tables and the equation's real scrollbar remain untouched. */}
+      <style>{`
+        .pretext-rich-block[data-pretext-block-kind="math"] > div {
+          margin-block: 0;
+        }
+      `}</style>
       {richBlocks.map((block, i) => {
         const isIframe =
           block.node?.type === 'iframe' ||
           (block.node?.children ?? []).some((c: any) => c.type === 'iframe');
-        if (!isIframe && (block.y + block.estimatedHeight < yMin || block.y > yMax)) return null;
 
         if (isIframe) {
           const iframeNode =
@@ -85,40 +155,20 @@ export function RichBlockLayer({
               : parseInt(String(iframeNode.height ?? '400')) || 400;
           const src = iframeNode.src ?? iframeNode.url ?? iframeNode.value ?? '';
           return (
-            <div
-              key={i}
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: block.y,
-                width: '100%',
-                boxSizing: 'border-box',
-                pointerEvents: 'auto',
-              }}
-            >
+            <MeasuredRichBlock key={i} block={block} onHeightChange={onHeightChange}>
               <MemoIframe
                 src={src}
                 iframeHeight={ih}
                 captionChildren={captionNode?.children ?? []}
               />
-            </div>
+            </MeasuredRichBlock>
           );
         }
 
         return (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: block.y,
-              width: '100%',
-              boxSizing: 'border-box',
-              minHeight: block.estimatedHeight,
-            }}
-          >
+          <MeasuredRichBlock key={i} block={block} onHeightChange={onHeightChange}>
             <MemoEquation node={block.node} />
-          </div>
+          </MeasuredRichBlock>
         );
       })}
     </div>

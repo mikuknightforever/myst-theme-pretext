@@ -45,7 +45,7 @@ export function WordCanvas({
       ctx.clearRect(0, 0, width, canvasH);
 
       for (const s of spans) {
-        if (s.code || s.math || s.semanticNode) continue;
+        if (s.code || s.math || s.semanticNode || s.maxWidth != null) continue;
         if (s.y < yMin || s.y > yMax) continue;
         const italic = s.italic ? 'italic ' : '';
         const weight = s.bold ? '700' : s.style.fontWeight;

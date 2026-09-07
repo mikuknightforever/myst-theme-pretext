@@ -1,4 +1,8 @@
-import { layoutBlocksInColumns, type ColumnLayoutOptions } from './column-layout.js';
+import {
+  getColumnFrames,
+  layoutBlocksInColumns,
+  type ColumnLayoutOptions,
+} from './column-layout.js';
 import {
   FIGURE_BLOCK_WIDTH_RATIO,
   FIGURE_CAPTION_ESTIMATE_H,
@@ -10,7 +14,7 @@ import {
   PRETEXT_TEXT_STYLE,
 } from './config.js';
 import { getOpeningLayout } from './layout-cache.js';
-import type { ContentBlock, ObstacleRect } from './layout.js';
+import type { ContentBlock, ObstacleRect, TextStyle } from './layout.js';
 import type { FigureInfo, FigurePosition } from './model.js';
 
 function findFirstImageNode(node: any): any | null {
@@ -51,6 +55,7 @@ export function getFigureDisplaySize(
   fig: FigureInfo,
   containerWidth: number,
   loadedRatio?: number,
+  captionHeight?: number,
 ): { width: number; height: number } {
   const articleLikeWidth = Math.max(FIGURE_MIN_W, Math.min(containerWidth, FIGURE_INLINE_MAX_W));
   const imageNode = findFirstImageNode(fig.mdastNode);
@@ -60,7 +65,7 @@ export function getFigureDisplaySize(
     parseDimension(imageNode?.width, articleLikeWidth);
   const width = Math.round(
     Math.max(
-      FIGURE_MIN_W,
+      Math.min(FIGURE_MIN_W, containerWidth),
       Math.min(
         containerWidth,
         declaredWidth ?? Math.min(articleLikeWidth, FIGURE_WIDTH_DEFAULT * 2.6),
@@ -72,10 +77,15 @@ export function getFigureDisplaySize(
     parseDimension(fig.mdastNode?.style?.height, width) ??
     parseDimension(imageNode?.height, width);
   const imageHeight =
-    declaredHeight ?? Math.round(width * getFigureNaturalAspectRatio(fig, loadedRatio));
+    declaredHeight != null
+      ? declaredHeight * (declaredWidth ? Math.min(1, width / declaredWidth) : 1)
+      : Math.round(width * getFigureNaturalAspectRatio(fig, loadedRatio));
   const hasCaption = (fig.mdastNode?.children ?? []).some((child: any) => child.type === 'caption');
   const height = Math.round(
-    Math.max(FIGURE_MIN_H, imageHeight + (hasCaption ? FIGURE_CAPTION_ESTIMATE_H : 18)),
+    Math.max(
+      FIGURE_MIN_H,
+      imageHeight + (hasCaption ? (captionHeight ?? FIGURE_CAPTION_ESTIMATE_H) : 18),
+    ),
   );
   return { width, height };
 }
@@ -104,9 +114,13 @@ export function buildInitialFigurePositions(
   containerWidth: number,
   imageRatios: Record<number, number>,
   columnOptions: ColumnLayoutOptions,
+  textStyle: TextStyle = PRETEXT_TEXT_STYLE,
+  captionHeights: Record<number, number> = {},
 ): FigurePosition[] {
+  const frames = getColumnFrames(containerWidth, columnOptions);
+  const figureContainerWidth = frames[0]?.width ?? containerWidth;
   const sizes = figures.map((fig, index) =>
-    getFigureDisplaySize(fig, containerWidth, imageRatios[index]),
+    getFigureDisplaySize(fig, figureContainerWidth, imageRatios[index], captionHeights[index]),
   );
   const sizingObstacles: ObstacleRect[] = sizes.map((size, figureIndex) => ({
     left: 0,
@@ -117,24 +131,56 @@ export function buildInitialFigurePositions(
     inline: true,
   }));
   const dimensionKey = sizes.map((size) => `${size.width}x${size.height}`).join(';');
+  const textStyleKey = JSON.stringify(textStyle);
   const anchors = getOpeningLayout(
     blocks,
-    `native-flow:${Math.round(containerWidth)}:${columnOptions.count}:${columnOptions.gap}:${dimensionKey}`,
+    `native-flow:${containerWidth}:${columnOptions.count}:${columnOptions.gap}:${columnOptions.columnHeight}:${columnOptions.bandGap}:${textStyleKey}:${dimensionKey}`,
     () =>
-      layoutBlocksInColumns(
-        blocks,
-        sizingObstacles,
-        containerWidth,
-        0,
-        PRETEXT_TEXT_STYLE,
-        columnOptions,
-      ),
+      layoutBlocksInColumns(blocks, sizingObstacles, containerWidth, 0, textStyle, columnOptions),
   ).figureAnchors;
-  return figures.map((_, i) => ({
-    x: Math.max(0, Math.round((containerWidth - sizes[i].width) / 2)),
-    y: anchors[i]?.y ?? 40 + i * (sizes[i].height + 32),
-    width: sizes[i].width,
-    height: sizes[i].height,
-    inline: true,
-  }));
+  const anchorsByFigure = new Map(anchors.map((anchor) => [anchor.figureIndex, anchor]));
+  return figures.map((_, i) => {
+    const anchor = anchorsByFigure.get(i);
+    const anchorLeft = anchor?.x ?? 0;
+    const anchorWidth = anchor?.width ?? containerWidth;
+    return {
+      x: Math.max(0, Math.round(anchorLeft + (anchorWidth - sizes[i].width) / 2)),
+      y: anchor?.y ?? 40 + i * (sizes[i].height + 32),
+      width: sizes[i].width,
+      height: sizes[i].height,
+      inline: true,
+    };
+  });
+}
+
+/** Commit prose and anchored cards from the same layout pass. Inline card
+ * positions are outputs, while manually moved cards remain fixed obstacles. */
+export function layoutWithFigures(
+  blocks: ContentBlock[],
+  positions: FigurePosition[],
+  containerWidth: number,
+  textStyle: TextStyle,
+  options: ColumnLayoutOptions,
+) {
+  const layout = layoutBlocksInColumns(
+    blocks,
+    toObstacleRects(positions, containerWidth),
+    containerWidth,
+    0,
+    textStyle,
+    options,
+  );
+  const anchors = new Map(layout.figureAnchors.map((anchor) => [anchor.figureIndex, anchor]));
+  return {
+    layout,
+    positions: positions.map((position, index) => {
+      const anchor = anchors.get(index);
+      if (!position.inline || !anchor) return position;
+      return {
+        ...position,
+        x: anchor.x + Math.max(0, (anchor.width - position.width) / 2),
+        y: anchor.y,
+      };
+    }),
+  };
 }

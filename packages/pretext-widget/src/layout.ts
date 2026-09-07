@@ -36,15 +36,24 @@ export interface StyledWord {
   /** Whitespace present immediately before/after this token in the source. */
   spaceBefore?: boolean;
   spaceAfter?: boolean;
-  math?: boolean;    // inline math
+  math?: boolean; // inline math
   mathHtml?: string; // pre-rendered KaTeX HTML from MyST build pipeline
+  /** Exact DOM width fed back after the inline node has rendered once. */
+  measuredWidth?: number;
+  measuredHeight?: number;
   /** Preserve interactive inline nodes for MyST's native hover/link renderers. */
   semanticNode?: any;
 }
 
 /** A block of content extracted from MDAST. */
 export type ContentBlock =
-  | { type: 'paragraph' | 'listItem'; bullet?: boolean; words: StyledWord[] }
+  | {
+      type: 'paragraph' | 'listItem';
+      bullet?: boolean;
+      words: StyledWord[];
+      /** A column fragment, not the end of the source paragraph. */
+      continues?: boolean;
+    }
   | {
       type: 'heading';
       depth: number;
@@ -52,20 +61,26 @@ export type ContentBlock =
       headingId: string;
       headingTitle: string;
     }
-  | { type: 'richBlock'; node: any; estimatedHeight: number }
+  | { type: 'richBlock'; node: any; estimatedHeight: number; richBlockIndex?: number }
   | { type: 'figureAnchor'; figureIndex: number };
 
 /** A rich block placed at an absolute Y position for React rendering. */
 export interface PlacedRichBlock {
   node: any;
+  /** Stable index in document order, used to feed DOM measurements back into layout. */
+  richBlockIndex: number;
+  x: number;
   y: number;
+  width: number;
   estimatedHeight: number;
 }
 
 /** Y position of a figure anchor in the text flow. */
 export interface FigureAnchor {
   figureIndex: number;
+  x: number;
   y: number;
+  width: number;
 }
 
 /** A heading position used by Pretext Mode's document outline. */
@@ -82,8 +97,23 @@ export interface LayoutResult {
   richBlocks: PlacedRichBlock[];
   figureAnchors: FigureAnchor[];
   headingAnchors: HeadingAnchor[];
+  /** Actual occupied extents of bounded, left-to-right reading groups. */
+  columnBands?: {
+    top: number;
+    bottom: number;
+    columnBottoms: number[];
+    breaks: ColumnBreak[];
+  }[];
   /** First available vertical position after every block in this layout. */
   contentBottom: number;
+}
+
+/** Explain early breaks without depending on article text or figure labels. */
+export interface ColumnBreak {
+  column: number;
+  reason: 'heading' | 'lead-in' | 'block' | 'text' | 'float' | 'section-boundary';
+  remaining: number;
+  required: number;
 }
 
 /** A positioned word span ready for rendering. */
@@ -98,11 +128,24 @@ export interface WordSpan {
   math?: boolean;
   mathHtml?: string; // pre-rendered KaTeX HTML — use dangerouslySetInnerHTML
   semanticNode?: any; // rendered through MyST to retain links and hover cards
+  /** Clamp an over-wide semantic token to the current column and make it scrollable. */
+  maxWidth?: number;
+  /** Occupied height, including any horizontal scrollbar. */
+  height?: number;
 }
+
+export interface InlineMetrics {
+  width: number;
+  height: number;
+}
+export const INLINE_SCROLLBAR_HEIGHT = 20;
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
 
 function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingContext2D): number {
+  if (word.measuredWidth != null && Number.isFinite(word.measuredWidth)) {
+    return word.measuredWidth;
+  }
   if (word.math) {
     const glyphs = word.text
       .replace(/\\[a-zA-Z]+/g, 'W')
@@ -122,7 +165,10 @@ function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingCon
 const _widthCache = new Map<string, number>();
 
 function measureCached(word: StyledWord, style: TextStyle, ctx: CanvasRenderingContext2D): number {
-  const k = `${style.fontSize}|${style.fontWeight}|${word.italic?1:0}|${word.code?1:0}|${word.math?1:0}|${word.text}`;
+  if (word.measuredWidth != null && Number.isFinite(word.measuredWidth)) {
+    return word.measuredWidth;
+  }
+  const k = `${style.fontFamily}|${style.fontSize}|${word.bold ? '700' : style.fontWeight}|${word.italic ? 1 : 0}|${word.code ? 1 : 0}|${word.math ? 1 : 0}|${word.text}`;
   let v = _widthCache.get(k);
   if (v === undefined) {
     v = measureWord(word, style, ctx);
@@ -186,9 +232,7 @@ function getLineSegments(
   gap = 20,
 ): Array<[number, number]> {
   // Collect obstacles that overlap ANY part of this line's vertical span
-  const active = obstacles.filter(
-    (o) => lineBottom > o.top && lineTop < o.bottom,
-  );
+  const active = obstacles.filter((o) => lineBottom > o.top && lineTop < o.bottom);
   if (active.length === 0) return [[leftEdge, rightEdge]];
 
   // Build blocked intervals with gap padding, sorted by start
@@ -238,12 +282,7 @@ function nextYAfterBlockingObstacles(
  * Recursively extract styled words from an MDAST inline node tree.
  * Handles: text, inlineCode, strong, emphasis, link, and generic parents.
  */
-function extractWords(
-  node: any,
-  bold = false,
-  italic = false,
-  code = false,
-): StyledWord[] {
+function extractWords(node: any, bold = false, italic = false, code = false): StyledWord[] {
   if (!node) return [];
   if (node.type === 'text') {
     const value = String(node.value ?? '').replace(/\s+/g, ' ');
@@ -268,7 +307,16 @@ function extractWords(
     return [{ text: node.value as string, bold, italic, code: true }];
   }
   if (node.type === 'inlineMath') {
-    return [{ text: node.value as string, bold: false, italic: false, code: false, math: true, mathHtml: node.html as string | undefined }];
+    return [
+      {
+        text: node.value as string,
+        bold: false,
+        italic: false,
+        code: false,
+        math: true,
+        mathHtml: node.html as string | undefined,
+      },
+    ];
   }
   if (node.type === 'citeGroup') {
     const children: any[] = node.children ?? [];
@@ -313,7 +361,16 @@ function extractWords(
 export function collectBlocks(mdast: any): ContentBlock[] {
   const results: ContentBlock[] = [];
   let figureIdx = 0;
+  let richBlockIdx = 0;
   const headingIds = new Map<string, number>();
+  const pushRichBlock = (node: any, estimatedHeight: number) => {
+    results.push({
+      type: 'richBlock',
+      node,
+      estimatedHeight,
+      richBlockIndex: richBlockIdx++,
+    });
+  };
   function walk(node: any) {
     if (!node) return;
     if (node.type === 'paragraph') {
@@ -331,9 +388,20 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       headingIds.set(requestedId, seen + 1);
       const headingId = seen === 0 ? requestedId : `${requestedId}-${seen + 1}`;
       const enumWord: StyledWord[] = node.enumerator
-        ? [{ text: String(node.enumerator), bold: true, italic: false, code: false, spaceAfter: true }]
+        ? [
+            {
+              text: String(node.enumerator),
+              bold: true,
+              italic: false,
+              code: false,
+              spaceAfter: true,
+            },
+          ]
         : [];
-      const words = [...enumWord, ...(node.children ?? []).flatMap((c: any) => extractWords(c, true))];
+      const words = [
+        ...enumWord,
+        ...(node.children ?? []).flatMap((c: any) => extractWords(c, true)),
+      ];
       if (words.length > 0) {
         results.push({
           type: 'heading',
@@ -356,16 +424,31 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'math') {
-      const lines = (node.value as string).split('\n').filter(Boolean).length;
-      const estimatedHeight = Math.max(72, lines * 38 + 32);
-      results.push({ type: 'richBlock', node, estimatedHeight });
+      // Source formatting newlines do not create rendered equation lines. Only
+      // explicit TeX line breaks should affect the initial estimate; the DOM
+      // layer reports the exact rendered height after the first paint.
+      const explicitLines = String(node.value ?? '').split(/\\\\(?:\[[^\]]*\])?/).length;
+      const estimatedHeight = Math.max(72, explicitLines * 38 + 32);
+      pushRichBlock(node, estimatedHeight);
       return;
     }
     if (node.type === 'iframe') {
       const heightVal = node.height ?? '400px';
       const h = typeof heightVal === 'number' ? heightVal : parseInt(String(heightVal)) || 400;
       // +100: 24px top/bottom padding + ~60px caption + 16px caption padding
-      results.push({ type: 'richBlock', node, estimatedHeight: h + 100 });
+      pushRichBlock(node, h + 100);
+      return;
+    }
+    if (node.type === 'table') {
+      const rowCount = (node.children ?? []).filter(
+        (child: any) => child.type === 'tableRow',
+      ).length;
+      pushRichBlock(node, Math.max(100, rowCount * 42 + 32));
+      return;
+    }
+    if (node.type === 'code') {
+      const lineCount = Math.max(1, String(node.value ?? '').split('\n').length);
+      pushRichBlock(node, Math.max(72, lineCount * 22 + 32));
       return;
     }
     if (node.type === 'container') {
@@ -382,17 +465,30 @@ export function collectBlocks(mdast: any): ContentBlock[] {
         const heightVal = iframeChild.height ?? '400px';
         const h = typeof heightVal === 'number' ? heightVal : parseInt(String(heightVal)) || 400;
         // +100: matches MemoIframe's 8px top + 16px bottom padding + ~60px caption + 16px caption pad
-        results.push({ type: 'richBlock', node, estimatedHeight: h + 100 });
+        pushRichBlock(node, h + 100);
         return;
       }
-      // Other containers (theorem, figure, etc.) — skip
+      // Tables need their caption and body to remain one measured, scrollable
+      // unit. Other structural containers are flattened into the paper flow so
+      // long proofs/admonitions can split naturally between columns.
+      if (node.kind === 'table' || children.some((child: any) => child.type === 'table')) {
+        const table = children.find((child: any) => child.type === 'table');
+        const rowCount = (table?.children ?? []).filter(
+          (child: any) => child.type === 'tableRow',
+        ).length;
+        pushRichBlock(node, Math.max(120, rowCount * 42 + 72));
+        return;
+      }
+      for (const child of children) walk(child);
+      return;
+    }
+    if (node.type === 'admonitionTitle') {
+      const words = (node.children ?? []).flatMap((child: any) => extractWords(child, true));
+      if (words.length > 0) results.push({ type: 'paragraph', words });
       return;
     }
     // Skip non-text node types — don't descend into them
-    const SKIP_TYPES = new Set([
-      'image', 'table', 'code', 'mystDirective',
-      'proof', 'theorem', 'lemma', 'corollary', 'definition', 'remark',
-    ]);
+    const SKIP_TYPES = new Set(['image', 'caption', 'captionNumber', 'mystDirective']);
     if (SKIP_TYPES.has(node.type)) return;
     if (node.children) {
       for (const child of node.children as any[]) walk(child);
@@ -402,8 +498,26 @@ export function collectBlocks(mdast: any): ContentBlock[] {
   return results;
 }
 
+export function inlineMeasurementKey(
+  word: Pick<StyledWord, 'text' | 'mathHtml' | 'semanticNode' | 'bold' | 'italic' | 'code'>,
+  style: TextStyle,
+): string {
+  return JSON.stringify([
+    style.fontFamily,
+    style.fontSize,
+    style.fontWeight,
+    style.lineHeight,
+    word.bold,
+    word.italic,
+    word.code,
+    word.text,
+    word.mathHtml,
+    word.semanticNode,
+  ]);
+}
+
 /** Derive TextStyle for a block (headings get larger/bolder text). */
-function styleForBlock(block: ContentBlock, base: TextStyle): TextStyle {
+export function styleForBlock(block: ContentBlock, base: TextStyle): TextStyle {
   if (block.type === 'heading') {
     const depth = block.depth ?? 2;
     const fontSize = depth === 1 ? 28 : depth === 2 ? 22 : 18;
@@ -420,7 +534,7 @@ function styleForBlock(block: ContentBlock, base: TextStyle): TextStyle {
 /**
  * Layout content blocks into positioned word spans, reflowing around obstacles.
  *
- * - Headings are always full-width (not deflected by obstacles).
+ * - Headings and rich blocks keep their width and move below intersecting floats.
  * - Paragraphs and list items reflow word-by-word around all obstacles.
  * - Inline bold / italic / code styles are preserved in each WordSpan.
  */
@@ -454,18 +568,39 @@ export function layoutBlocks(
   let y = startY;
   let richIdx = 0;
   let previousFigureAnchorY = Number.NEGATIVE_INFINITY;
+  const floatingObstacles = obstacles.filter((o) => !o.inline);
+  const clearFullWidthBlock = (top: number, height: number) => {
+    let next = top;
+    while (true) {
+      const blocked = floatingObstacles.filter(
+        (o) => o.right > 0 && o.left < containerWidth && next < o.bottom && next + height > o.top,
+      );
+      if (!blocked.length) return next;
+      next = Math.max(...blocked.map((o) => o.bottom)) + style.paragraphGap;
+    }
+  };
 
   for (const block of blocks) {
     // ── Figure anchors (zero-height, record y position) ──────────────────────
     if (block.type === 'figureAnchor') {
-      const anchorY = Math.max(y, previousFigureAnchorY + minFigureAnchorSpacing);
-      figureAnchors.push({ figureIndex: block.figureIndex, y: anchorY });
-      previousFigureAnchorY = anchorY;
       const inlineFigure = obstacles.find(
         (obstacle) => obstacle.inline && obstacle.figureIndex === block.figureIndex,
       );
+      const figureHeight = inlineFigure ? inlineFigure.bottom - inlineFigure.top : 0;
+      const anchorY = clearFullWidthBlock(
+        Math.max(y, previousFigureAnchorY + minFigureAnchorSpacing),
+        figureHeight,
+      );
+      figureAnchors.push({
+        figureIndex: block.figureIndex,
+        x: 0,
+        y: anchorY,
+        width: containerWidth,
+      });
+      previousFigureAnchorY = anchorY;
       if (inlineFigure) {
-        y = Math.max(y, anchorY + (inlineFigure.bottom - inlineFigure.top) + style.paragraphGap);
+        // Render inline cards at this pass's anchor, never their stale position.
+        y = anchorY + figureHeight + style.paragraphGap;
       }
       continue;
     }
@@ -474,7 +609,15 @@ export function layoutBlocks(
     if (block.type === 'richBlock') {
       const measuredH = richBlockHeights?.[richIdx];
       const height = measuredH != null ? measuredH : block.estimatedHeight;
-      richBlocks.push({ node: block.node, y, estimatedHeight: height });
+      y = clearFullWidthBlock(y, height);
+      richBlocks.push({
+        node: block.node,
+        richBlockIndex: block.richBlockIndex ?? richIdx,
+        x: 0,
+        y,
+        width: containerWidth,
+        estimatedHeight: height,
+      });
       y += height + style.paragraphGap;
       richIdx++;
       continue;
@@ -487,6 +630,11 @@ export function layoutBlocks(
     // figure block earlier paragraphs and create a large blank region.
     const blockObstacles =
       block.type === 'heading' ? [] : obstacles.filter((obstacle) => !obstacle.inline);
+
+    if (block.type === 'heading' && floatingObstacles.length) {
+      const height = layoutBlocks([block], [], containerWidth, 0, style).contentBottom;
+      y = clearFullWidthBlock(y, height);
+    }
 
     // Extra vertical space before headings
     if (block.type === 'heading') y += Math.round(blockStyle.lineHeight * 0.6);
@@ -507,51 +655,93 @@ export function layoutBlocks(
 
     let wi = 0;
     while (wi < words.length) {
-      const segments = getLineSegments(
-        y,
-        y + blockStyle.lineHeight,
-        blockObstacles,
-        0,
-        containerWidth,
-      );
-      if (segments.length === 0) {
-        y = Math.max(
-          y + blockStyle.lineHeight,
-          nextYAfterBlockingObstacles(y, y + blockStyle.lineHeight, blockObstacles),
-        );
-        continue;
-      }
-
       const wiAtLineStart = wi;
-      for (const [segStart, segEnd] of segments) {
-        let x = segStart;
-        let placedInSegment = false;
-        // Indent list items past their bullet on continuation lines
-        if (isListItem && wi > 0 && segStart === 0) x += 18;
-        while (wi < words.length) {
-          const word = words[wi];
-          const ww = measureCached(word, blockStyle, ctx);
-          const previous = wi > 0 ? words[wi - 1] : undefined;
-          const gap = placedInSegment && (previous?.spaceAfter || word.spaceBefore) ? 6 : 0;
-          // Keep source-attached fragments together, e.g. abbreviation + plural
-          // suffix (`KAN` + `s`) and parentheses around inline math.
-          let clusterWidth = ww;
-          let clusterEnd = wi + 1;
-          while (
-            clusterEnd < words.length &&
-            !words[clusterEnd - 1].spaceAfter &&
-            !words[clusterEnd].spaceBefore
-          ) {
-            clusterWidth += measureCached(words[clusterEnd], blockStyle, ctx);
-            clusterEnd++;
+      const spanStart = spans.length;
+      let lineHeight = blockStyle.lineHeight;
+      // Recheck obstacles whenever an inline formula enlarges the line box.
+      let retryLine: boolean;
+      do {
+        retryLine = false;
+        wi = wiAtLineStart;
+        spans.length = spanStart;
+        const segments = getLineSegments(y, y + lineHeight, blockObstacles, 0, containerWidth);
+        if (segments.length === 0) {
+          y = Math.max(
+            y + lineHeight,
+            nextYAfterBlockingObstacles(y, y + lineHeight, blockObstacles),
+          );
+          retryLine = true;
+          continue;
+        }
+
+        for (const [segStart, segEnd] of segments) {
+          let x = segStart;
+          let placedInSegment = false;
+          // Indent list items past their bullet on continuation lines
+          if (isListItem && wi > 0 && segStart === 0) x += 18;
+          while (wi < words.length) {
+            const word = words[wi];
+            const ww = measureCached(word, blockStyle, ctx);
+            const previous = wi > 0 ? words[wi - 1] : undefined;
+            const gap = placedInSegment && (previous?.spaceAfter || word.spaceBefore) ? 6 : 0;
+            // Keep source-attached fragments together, e.g. abbreviation + plural
+            // suffix (`KAN` + `s`) and parentheses around inline math.
+            let clusterWidth = ww;
+            let clusterEnd = wi + 1;
+            while (
+              clusterEnd < words.length &&
+              !words[clusterEnd - 1].spaceAfter &&
+              !words[clusterEnd].spaceBefore
+            ) {
+              clusterWidth += measureCached(words[clusterEnd], blockStyle, ctx);
+              clusterEnd++;
+            }
+            const segmentWidth = segEnd - segStart;
+            const requiredWidth = clusterWidth <= segmentWidth ? clusterWidth : ww;
+            if (x + gap + requiredWidth > segEnd) break;
+            const wordHeight = Math.max(blockStyle.lineHeight, word.measuredHeight ?? 0);
+            if (wordHeight > lineHeight) {
+              lineHeight = wordHeight;
+              retryLine = true;
+              break;
+            }
+            x += gap;
+            spans.push({
+              text: word.text,
+              x,
+              y,
+              style: blockStyle,
+              bold: word.bold,
+              italic: word.italic,
+              code: word.code,
+              math: word.math,
+              mathHtml: word.mathHtml,
+              semanticNode: word.semanticNode,
+              height: wordHeight,
+            });
+            x += ww;
+            wi++;
+            placedInSegment = true;
           }
-          const segmentWidth = segEnd - segStart;
-          const requiredWidth = clusterWidth <= segmentWidth ? clusterWidth : ww;
-          if (x + gap + requiredWidth > segEnd) break;
-          x += gap;
+          if (retryLine) break;
+        }
+        if (retryLine) continue;
+        // Never discard an over-wide token. Semantic tokens (especially inline
+        // math/code/links) are clamped to the column and rendered with their own
+        // horizontal scroller by MathCodeLayer.
+        if (wi === wiAtLineStart) {
+          const [segStart, segEnd] = segments[0];
+          const word = words[wi];
+          const wordHeight =
+            Math.max(blockStyle.lineHeight, word.measuredHeight ?? 0) + INLINE_SCROLLBAR_HEIGHT;
+          if (wordHeight > lineHeight) {
+            lineHeight = wordHeight;
+            retryLine = true;
+            continue;
+          }
           spans.push({
             text: word.text,
-            x,
+            x: segStart,
             y,
             style: blockStyle,
             bold: word.bold,
@@ -560,22 +750,22 @@ export function layoutBlocks(
             math: word.math,
             mathHtml: word.mathHtml,
             semanticNode: word.semanticNode,
+            maxWidth: Math.max(1, segEnd - segStart),
+            height: wordHeight,
           });
-          x += ww;
           wi++;
-          placedInSegment = true;
         }
-      }
-      y += blockStyle.lineHeight;
-      // Safety: if no words were placed this line (word too wide for every segment),
-      // force-advance to prevent an infinite loop. The word is dropped from the layout.
-      if (wi === wiAtLineStart) wi++;
+      } while (retryLine);
+      y += lineHeight;
     }
 
     // Vertical gap after each block
-    y += block.type === 'heading'
-      ? Math.round(blockStyle.lineHeight * 0.3)
-      : style.paragraphGap;
+    y +=
+      block.type === 'heading'
+        ? Math.round(blockStyle.lineHeight * 0.3)
+        : block.continues
+          ? 0
+          : style.paragraphGap;
   }
 
   return { spans, richBlocks, figureAnchors, headingAnchors, contentBottom: y };
