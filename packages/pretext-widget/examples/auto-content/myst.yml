@@ -1,0 +1,9 @@
+version: 1
+project:
+  title: Pretext automatic content detection
+  plugins:
+    - demo-plugin.mjs
+  toc:
+    - file: index.md
+site:
+  template: ../../../../themes/article

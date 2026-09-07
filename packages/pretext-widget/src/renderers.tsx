@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom';
 import { useReferences, useThemeSwitcher } from '@myst-theme/providers';
 import { PretextLauncher } from './components/PretextLauncher.js';
 import { PretextOverlay } from './components/PretextOverlay.js';
-import { collectBlocks, findAllDraggableNodes, findImageUrl } from './layout.js';
-import type { FigureInfo } from './model.js';
+import { collectArticle } from './layout.js';
 import type { PretextWidget } from './types.js';
 
 export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
@@ -19,14 +18,7 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
     const mdast = (references as any)?.article;
     if (!mdast) return { blocks: [], figures: [] };
 
-    const blks = collectBlocks(mdast);
-    const figNodes = findAllDraggableNodes(mdast, draggableSelector);
-    const figs: FigureInfo[] = figNodes.map((figNode, i) => ({
-      mdastNode: figNode,
-      label: `Figure ${i + 1}`,
-      imageUrl: findImageUrl(figNode),
-    }));
-    return { blocks: blks, figures: figs };
+    return collectArticle(mdast, { draggableSelector });
   }, [references, draggableSelector]);
 
   return (

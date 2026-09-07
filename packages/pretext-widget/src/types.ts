@@ -1,5 +1,5 @@
 export type PretextWidget = {
   type: 'pretext-widget';
-  /** CSS selector for draggable figures in the article (default: '.pretext-draggable') */
+  /** Optional legacy class name; standard static figures are detected automatically. */
   draggableSelector?: string;
 };

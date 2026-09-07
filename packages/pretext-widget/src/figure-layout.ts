@@ -16,6 +16,7 @@ import {
 import { getOpeningLayout } from './layout-cache.js';
 import type { ContentBlock, ObstacleRect, TextStyle } from './layout.js';
 import type { FigureInfo, FigurePosition } from './model.js';
+import { figureParts } from './content-detection.js';
 
 function findFirstImageNode(node: any): any | null {
   if (!node) return null;
@@ -80,7 +81,7 @@ export function getFigureDisplaySize(
     declaredHeight != null
       ? declaredHeight * (declaredWidth ? Math.min(1, width / declaredWidth) : 1)
       : Math.round(width * getFigureNaturalAspectRatio(fig, loadedRatio));
-  const hasCaption = (fig.mdastNode?.children ?? []).some((child: any) => child.type === 'caption');
+  const hasCaption = figureParts(fig.mdastNode).captions.length > 0;
   const height = Math.round(
     Math.max(
       FIGURE_MIN_H,

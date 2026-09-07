@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { MyST } from 'myst-to-react';
 import type { FigureInfo, FigurePosition } from '../model.js';
+import { figureParts } from '../content-detection.js';
 
 export function FigureCard({
   fig,
@@ -30,6 +31,7 @@ export function FigureCard({
   onCaptionHeightChange?: (index: number, height: number) => void;
 }) {
   const active = isDragging || isResizing;
+  const { body, captions } = figureParts(fig.mdastNode);
   const captionRef = React.useRef<HTMLDivElement>(null);
   React.useLayoutEffect(() => {
     const element = captionRef.current;
@@ -43,6 +45,7 @@ export function FigureCard({
   return (
     <div
       className="pretext-figure-card"
+      id={fig.mdastNode?.html_id ?? fig.mdastNode?.identifier}
       data-pretext-figure-index={index}
       onPointerDown={(e) => onPointerDown(e, index)}
       onPointerMove={onPointerMove}
@@ -103,16 +106,10 @@ export function FigureCard({
           justifyContent: 'center',
         }}
       >
-        {(() => {
-          const children: any[] = fig.mdastNode?.children ?? [];
-          const legend = children.find((c) => c.type === 'legend');
-          const content = legend ? legend.children : children.filter((c) => c.type !== 'caption');
-          return <MyST ast={content} />;
-        })()}
+        <MyST ast={body} />
       </div>
       {(() => {
-        const cap = (fig.mdastNode?.children ?? []).find((c: any) => c.type === 'caption');
-        if (!cap) return null;
+        if (!captions.length) return null;
         return (
           <div
             ref={captionRef}
@@ -124,10 +121,13 @@ export function FigureCard({
               lineHeight: 1.4,
               color: isDark ? '#cbd5e1' : '#475569',
               borderTop: '1px solid rgba(148,163,184,0.25)',
-              pointerEvents: 'none',
+              pointerEvents: 'auto',
             }}
+            onPointerDown={(event) => event.stopPropagation()}
           >
-            <MyST ast={cap.children} />
+            {captions.map((caption, i) => (
+              <MyST key={caption.key ?? i} ast={caption.children} />
+            ))}
           </div>
         );
       })()}

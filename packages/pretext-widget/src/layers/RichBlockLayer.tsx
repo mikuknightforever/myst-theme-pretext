@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { MyST } from 'myst-to-react';
+import { useNodeRenderers } from '@myst-theme/providers';
+import { nativeBlockNode, simpleIframe, unsupportedTypes } from '../content-detection.js';
 import type { PlacedRichBlock, TextStyle } from '../layout.js';
 
 function useMeasuredBlockHeight(
@@ -66,18 +68,33 @@ function MeasuredRichBlock({
   );
 }
 
-const MemoEquation = React.memo(function MemoEquation({ node }: { node: any }) {
-  return <MyST ast={[node]} />;
+const MemoNativeBlock = React.memo(function MemoNativeBlock({ node }: { node: any }) {
+  const renderers = useNodeRenderers();
+  const visibleNode = React.useMemo(() => nativeBlockNode(node), [node]);
+  const missing = unsupportedTypes(visibleNode, renderers);
+  return (
+    <>
+      {missing.length > 0 && (
+        <div role="note" style={{ padding: 8, border: '1px solid #b45309', fontSize: 13 }}>
+          Pretext: this theme has no renderer for {missing.join(', ')}. Showing available content
+          below.
+        </div>
+      )}
+      <MyST ast={[visibleNode]} />
+    </>
+  );
 });
 
 const MemoIframe = React.memo(function MemoIframe({
   src,
   iframeHeight,
   captionChildren,
+  title,
 }: {
   src: string;
   iframeHeight: number;
   captionChildren: any[];
+  title: string;
 }) {
   return (
     <div style={{ padding: '8px 0 16px' }}>
@@ -91,7 +108,7 @@ const MemoIframe = React.memo(function MemoIframe({
           borderRadius: 6,
           display: 'block',
         }}
-        title=""
+        title={title}
       />
       {captionChildren.length > 0 && (
         <div style={{ fontSize: 13, lineHeight: 1.5, color: '#64748b', paddingTop: 8 }}>
@@ -134,17 +151,24 @@ export function RichBlockLayer({
         .pretext-rich-block[data-pretext-block-kind="math"] > div {
           margin-block: 0;
         }
+        .pretext-rich-block ol, .pretext-rich-block ul {
+          padding-inline-start: 1.5em;
+          margin-block: .5em;
+          list-style-position: outside;
+        }
+        .pretext-rich-block ol { list-style-type: decimal; }
+        .pretext-rich-block ul { list-style-type: disc; }
+        .pretext-rich-block .task-list-item { list-style-type: none; }
+        .pretext-rich-block .task-list-item-checkbox {
+          position: static;
+          margin: 0 .5em 0 0;
+        }
+        .pretext-rich-block .task-list-item > p { display: inline; }
       `}</style>
       {richBlocks.map((block, i) => {
-        const isIframe =
-          block.node?.type === 'iframe' ||
-          (block.node?.children ?? []).some((c: any) => c.type === 'iframe');
+        const iframeNode = simpleIframe(block.node);
 
-        if (isIframe) {
-          const iframeNode =
-            block.node?.type === 'iframe'
-              ? block.node
-              : ((block.node?.children ?? []).find((c: any) => c.type === 'iframe') ?? block.node);
+        if (iframeNode) {
           const captionNode =
             block.node?.type === 'container'
               ? (block.node.children ?? []).find((c: any) => c.type === 'caption')
@@ -160,6 +184,7 @@ export function RichBlockLayer({
                 src={src}
                 iframeHeight={ih}
                 captionChildren={captionNode?.children ?? []}
+                title={iframeNode.title ?? 'Interactive article content'}
               />
             </MeasuredRichBlock>
           );
@@ -167,7 +192,7 @@ export function RichBlockLayer({
 
         return (
           <MeasuredRichBlock key={i} block={block} onHeightChange={onHeightChange}>
-            <MemoEquation node={block.node} />
+            <MemoNativeBlock node={block.node} />
           </MeasuredRichBlock>
         );
       })}

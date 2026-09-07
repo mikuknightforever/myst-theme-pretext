@@ -1,3 +1,12 @@
+import {
+  canExtractInline,
+  childrenOf,
+  figureLabel,
+  isSimpleList,
+  isStaticFigure,
+} from './content-detection.js';
+import type { FigureInfo } from './model.js';
+
 export interface TextStyle {
   fontSize: number;
   lineHeight: number;
@@ -184,6 +193,12 @@ const SEMANTIC_INLINE_TYPES = new Set([
   'crossReference',
   'footnoteReference',
   'link',
+  'subscript',
+  'superscript',
+  'underline',
+  'delete',
+  'smallcaps',
+  'keyboard',
 ]);
 
 /** Plain-text approximation used only to measure semantic inline nodes. */
@@ -358,9 +373,19 @@ function extractWords(node: any, bold = false, italic = false, code = false): St
  * Walk an MDAST tree and collect content blocks:
  * paragraphs, headings, and list items — with inline formatting preserved.
  */
-export function collectBlocks(mdast: any): ContentBlock[] {
+export interface ArticleContent {
+  blocks: ContentBlock[];
+  figures: FigureInfo[];
+}
+
+/** One traversal assigns both anchors and cards, so automatic and legacy
+ * figures cannot disagree about indexes. The source AST is never mutated. */
+export function collectArticle(
+  mdast: any,
+  options: { draggableSelector?: string } = {},
+): ArticleContent {
   const results: ContentBlock[] = [];
-  let figureIdx = 0;
+  const figures: FigureInfo[] = [];
   let richBlockIdx = 0;
   const headingIds = new Map<string, number>();
   const pushRichBlock = (node: any, estimatedHeight: number) => {
@@ -373,12 +398,26 @@ export function collectBlocks(mdast: any): ContentBlock[] {
   };
   function walk(node: any) {
     if (!node) return;
+    if (['pretext-widget', 'comment', 'mystComment', 'definition'].includes(node.type)) return;
+    if (isStaticFigure(node, options.draggableSelector)) {
+      results.push({ type: 'figureAnchor', figureIndex: figures.length });
+      figures.push({ mdastNode: node, label: figureLabel(node), imageUrl: findImageUrl(node) });
+      return;
+    }
     if (node.type === 'paragraph') {
+      if (!childrenOf(node).every(canExtractInline)) {
+        pushRichBlock(node, 100);
+        return;
+      }
       const words = (node.children ?? []).flatMap((c: any) => extractWords(c));
       if (words.length > 0) results.push({ type: 'paragraph', words });
       return;
     }
     if (node.type === 'heading') {
+      if (!childrenOf(node).every(canExtractInline)) {
+        pushRichBlock(node, 70);
+        return;
+      }
       const plainTitle = semanticText(node).trim() || 'Untitled section';
       const title = node.enumerator ? `${node.enumerator} ${plainTitle}` : plainTitle;
       const requestedId = String(
@@ -413,7 +452,17 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       }
       return;
     }
+    if (node.type === 'list' && !isSimpleList(node)) {
+      // Preserve numbering, nesting, task checkboxes, images and multiple
+      // paragraphs rather than flattening all of them into one bullet.
+      pushRichBlock(node, Math.max(100, childrenOf(node).length * 48));
+      return;
+    }
     if (node.type === 'listItem') {
+      if (!isSimpleList({ children: [node] })) {
+        pushRichBlock(node, 100);
+        return;
+      }
       const words = (node.children ?? []).flatMap((c: any) => {
         if (c.type === 'paragraph') {
           return (c.children ?? []).flatMap((cc: any) => extractWords(cc));
@@ -452,12 +501,6 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       return;
     }
     if (node.type === 'container') {
-      // Pretext-draggable containers are figure cards — record anchor, then skip
-      const cls = String(node.class ?? node.className ?? '');
-      if (cls.split(/\s+/).includes('pretext-draggable')) {
-        results.push({ type: 'figureAnchor', figureIndex: figureIdx++ });
-        return;
-      }
       // Container wrapping an iframe panel — render inline
       const children: any[] = node.children ?? [];
       const iframeChild = children.find((c: any) => c.type === 'iframe');
@@ -479,6 +522,12 @@ export function collectBlocks(mdast: any): ContentBlock[] {
         pushRichBlock(node, Math.max(120, rowCount * 42 + 72));
         return;
       }
+      if (node.kind === 'figure' || children.some((child) => child.type === 'caption')) {
+        // Compound, linked or interactive figures retain their entire native
+        // subtree, including all images, controls, legends and captions.
+        pushRichBlock(node, 300);
+        return;
+      }
       for (const child of children) walk(child);
       return;
     }
@@ -487,15 +536,21 @@ export function collectBlocks(mdast: any): ContentBlock[] {
       if (words.length > 0) results.push({ type: 'paragraph', words });
       return;
     }
-    // Skip non-text node types — don't descend into them
-    const SKIP_TYPES = new Set(['image', 'caption', 'captionNumber', 'mystDirective']);
-    if (SKIP_TYPES.has(node.type)) return;
-    if (node.children) {
-      for (const child of node.children as any[]) walk(child);
+    if (['root', 'block', 'section', 'include', 'admonition', 'list'].includes(node.type)) {
+      childrenOf(node).forEach(walk);
+      return;
     }
+    // Let MyST render other content (footnotes, definition lists, tabs,
+    // widgets, unresolved directives, etc.). Never silently skip unknown leaves.
+    pushRichBlock(node, 100);
   }
   walk(mdast);
-  return results;
+  return { blocks: results, figures };
+}
+
+/** Compatibility helper for layout-only consumers. */
+export function collectBlocks(mdast: any): ContentBlock[] {
+  return collectArticle(mdast).blocks;
 }
 
 export function inlineMeasurementKey(

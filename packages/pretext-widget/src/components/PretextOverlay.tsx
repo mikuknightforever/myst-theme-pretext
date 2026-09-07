@@ -331,6 +331,41 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     setResizingIdx(null);
   }
 
+  function followLocalReference(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return;
+    const link = (event.target as Element).closest?.('a[href]');
+    const content = contentRef.current;
+    const scroll = scrollRef.current;
+    if (!link || !content || !scroll || link.getAttribute('target') === '_blank') return;
+    const url = new URL(link.getAttribute('href')!, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      url.pathname !== window.location.pathname ||
+      !url.hash
+    )
+      return;
+    let id: string;
+    try {
+      id = decodeURIComponent(url.hash.slice(1));
+    } catch {
+      return;
+    }
+    const target = Array.from(content.querySelectorAll<HTMLElement>('[id]')).find(
+      (node) => node.id === id,
+    );
+    const heading = headingAnchors.find((anchor) => anchor.id === id);
+    if (!target && !heading) return;
+    // The original article is still mounted behind the overlay. Scope links to
+    // this reading surface instead of document.getElementById's first match.
+    event.preventDefault();
+    event.stopPropagation();
+    const y = target
+      ? target.getBoundingClientRect().top - content.getBoundingClientRect().top
+      : heading!.y;
+    scroll.scrollTop = Math.max(0, y - 16);
+  }
+
   return (
     <div
       role="dialog"
@@ -411,6 +446,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         >
           <div
             ref={contentRef}
+            onClickCapture={followLocalReference}
             style={{
               position: 'relative',
               padding: `${OVERLAY_PADDING}px`,
