@@ -1,0 +1,5 @@
+# Keep quality-checked sources identical on Windows and Unix checkouts.
+.gitattributes text eol=lf
+packages/pretext-widget/src/** text=auto eol=lf
+themes/article/app/** text=auto eol=lf
+themes/article/tests/** text=auto eol=lf
