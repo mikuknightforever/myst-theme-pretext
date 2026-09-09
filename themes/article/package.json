@@ -4,6 +4,9 @@
   "private": true,
   "sideEffects": false,
   "scripts": {
+    "test": "vitest run tests --threads false",
+    "lint": "eslint app tests --ext .ts,.tsx --max-warnings 0",
+    "lint:format": "prettier --check \"app/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "compile": "tsc --noEmit --skipLibCheck",
     "build:css": "tailwindcss -m -i ./styles/app.css -o app/styles/app.css",
     "dev:copy": "cp remix.config.dev.js remix.config.js",

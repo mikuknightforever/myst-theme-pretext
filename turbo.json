@@ -1,6 +1,10 @@
 {
   "$schema": "https://turborepo.org/schema.json",
   "tasks": {
+    "build:esm": {
+      "dependsOn": ["^build:esm"],
+      "outputs": ["dist/**"]
+    },
     "compile": {
       "dependsOn": ["^build"]
     },

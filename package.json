@@ -8,6 +8,7 @@
     "styles"
   ],
   "scripts": {
+    "quality:pretext": "node scripts/check-pretext.mjs",
     "compile": "turbo run compile",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel --filter='./packages/*'",
@@ -60,7 +61,7 @@
   },
   "packageManager": "bun@1.3.10",
   "lint-staged": {
-    "*.ts": "eslint --config ./.eslintrc.cjs --fix",
+    "*.{ts,tsx}": "eslint --fix",
     "*.{js,jsx,ts,tsx,md,html,css,json}": "prettier --write"
   },
   "patchedDependencies": {

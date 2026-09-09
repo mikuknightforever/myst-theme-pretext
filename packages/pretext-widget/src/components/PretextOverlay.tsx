@@ -1,37 +1,22 @@
 import * as React from 'react';
 import { useThemeSwitcher } from '@myst-theme/providers';
-import { type ColumnCount, type ColumnLayoutOptions } from '../column-layout.js';
-import {
-  COLUMN_GAP,
-  COLUMN_MIN_WIDTH,
-  COLUMN_PAGE_GAP,
-  COLUMN_PAGE_HEIGHT,
-  FIGURE_MIN_H,
-  FIGURE_MIN_W,
-  OVERLAY_PADDING,
-} from '../config.js';
+import type { ColumnCount } from '../column-layout.js';
+import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
 import { FigureCard } from '../figures/FigureCard.js';
-import { buildInitialFigurePositions, layoutWithFigures } from '../figure-layout.js';
-import { useContainerWidth, useImageRatios, useMediaQuery } from '../hooks.js';
-import { DEFAULT_TEXT_STYLE, inlineMeasurementKey, styleForBlock } from '../layout.js';
-import type { ContentBlock, HeadingAnchor, InlineMetrics, LayoutResult } from '../layout.js';
-import type { DragState, FigureInfo, FigureLayoutState } from '../model.js';
-import { readingSettingsKey, readingTextStyle, type ReadingSettings } from '../reading-settings.js';
+import { useContainerWidth, useMediaQuery } from '../hooks.js';
+import { usePretextLayout } from '../hooks/usePretextLayout.js';
+import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
+import { useReadingNavigation } from '../hooks/useReadingNavigation.js';
+import { DEFAULT_TEXT_STYLE } from '../layout/types.js';
+import type { ContentBlock } from '../layout/types.js';
+import type { FigureInfo } from '../model.js';
+import type { ReadingSettings } from '../reading-settings.js';
 import { useReadingSettings } from '../useReadingSettings.js';
 import { InlineMeasurementLayer, MathCodeLayer } from '../layers/MathCodeLayer.js';
 import { RichBlockLayer } from '../layers/RichBlockLayer.js';
 import { WordCanvas } from '../layers/WordCanvas.js';
 import { PretextOutline } from './PretextOutline.js';
 import { PretextToolbar } from './PretextToolbar.js';
-
-const EMPTY_LAYOUT: LayoutResult = {
-  spans: [],
-  richBlocks: [],
-  figureAnchors: [],
-  headingAnchors: [],
-  contentBottom: 0,
-};
-const EMPTY_HEIGHTS: Record<number, number> = {};
 
 interface OverlayProps {
   blocks: ContentBlock[];
@@ -46,8 +31,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
 }: OverlayProps) {
   const { isDark, nextTheme } = useThemeSwitcher();
   const { settings: readingSettings, updateSettings, resetSettings } = useReadingSettings();
-  const readingKey = readingSettingsKey(readingSettings);
-  const textStyle = React.useMemo(() => readingTextStyle(readingSettings), [readingKey]);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
   const showOutline = useMediaQuery('(min-width: 1180px)');
@@ -60,78 +43,35 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     ),
   ) as ColumnCount;
   const columnCount = Math.min(requestedColumnCount, maxColumnCount) as ColumnCount;
-  const columnOptions: ColumnLayoutOptions = {
-    count: columnCount,
-    gap: COLUMN_GAP,
-    columnHeight: COLUMN_PAGE_HEIGHT,
-    bandGap: COLUMN_PAGE_GAP,
-  };
-
-  const [figureLayout, setFigureLayout] = React.useState<FigureLayoutState | null>(null);
-  const richMeasurementScope = `${Math.round(containerWidth)}:${columnCount}:${readingKey}`;
-  const [richMeasurements, setRichMeasurements] = React.useState<{
-    scope: string;
-    heights: Record<number, number>;
-  }>({ scope: '', heights: {} });
-  const richBlockHeights =
-    richMeasurements.scope === richMeasurementScope ? richMeasurements.heights : EMPTY_HEIGHTS;
-  const [inlineMetrics, setInlineMetrics] = React.useState<Record<string, InlineMetrics>>({});
-  const [captionMeasurements, setCaptionMeasurements] = React.useState<{
-    scope: string;
-    heights: Record<number, number>;
-  }>({ scope: '', heights: {} });
-  const captionHeights =
-    captionMeasurements.scope === richMeasurementScope
-      ? captionMeasurements.heights
-      : EMPTY_HEIGHTS;
-  const updateCaptionHeight = React.useCallback(
-    (index: number, height: number) => {
-      setCaptionMeasurements((current) => {
-        const heights = current.scope === richMeasurementScope ? current.heights : {};
-        if (heights[index] === height) return current;
-        return { scope: richMeasurementScope, heights: { ...heights, [index]: height } };
-      });
-    },
-    [richMeasurementScope],
-  );
-  const measuredBlocks = React.useMemo(() => {
-    let fallbackIndex = 0;
-    return blocks.map((block) => {
-      if (block.type === 'richBlock') {
-        const index = block.richBlockIndex ?? fallbackIndex;
-        fallbackIndex += 1;
-        const measuredHeight = richBlockHeights[index];
-        return measuredHeight == null ? block : { ...block, estimatedHeight: measuredHeight };
-      }
-      if (block.type === 'figureAnchor') return block;
-      const blockStyle = styleForBlock(block, textStyle);
-      let changed = false;
-      const words = block.words.map((word) => {
-        if (!word.math && !word.code && !word.semanticNode) return word;
-        const metrics = inlineMetrics[inlineMeasurementKey(word, blockStyle)];
-        if (!metrics) {
-          return word;
-        }
-        changed = true;
-        return { ...word, measuredWidth: metrics.width, measuredHeight: metrics.height };
-      });
-      return changed ? { ...block, words } : block;
-    });
-  }, [blocks, inlineMetrics, richBlockHeights, textStyle]);
-  const imageRatios = useImageRatios(figures);
-  const manualPositions =
-    figureLayout?.width === containerWidth &&
-    figureLayout?.columns === columnCount &&
-    figureLayout?.readingKey === readingKey
-      ? figureLayout.positions
-      : null;
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  const dragRef = React.useRef<DragState | null>(null);
-  const pendingLayoutHeadingRef = React.useRef<string | null>(null);
-  const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
-  const [resizingIdx, setResizingIdx] = React.useState<number | null>(null);
-
+  const {
+    layout,
+    spans,
+    richBlocks,
+    headingAnchors,
+    figPositions,
+    contentHeight,
+    readingKey,
+    textStyle,
+    setFigureLayout,
+    updateCaptionHeight,
+    updateRichBlockHeight,
+    updateInlineMetrics,
+  } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
+  const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
+    useFigureInteractions({
+      figPositions,
+      setFigureLayout,
+      containerWidth,
+      columnCount,
+      readingKey,
+    });
+  const { rememberReadingPosition, followLocalReference } = useReadingNavigation({
+    headingAnchors,
+    contentRef,
+    scrollRef,
+  });
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -139,104 +79,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
-
-  const { layout, positions: figPositions } = React.useMemo(() => {
-    if (typeof document === 'undefined' || containerWidth <= 0) {
-      return { layout: EMPTY_LAYOUT, positions: null };
-    }
-    const initial = buildInitialFigurePositions(
-      measuredBlocks,
-      figures,
-      containerWidth,
-      imageRatios,
-      columnOptions,
-      textStyle,
-      captionHeights,
-    );
-    const candidates = initial.map((position, index) =>
-      manualPositions?.[index] && !manualPositions[index].inline
-        ? manualPositions[index]
-        : position,
-    );
-    return layoutWithFigures(measuredBlocks, candidates, containerWidth, textStyle, columnOptions);
-  }, [
-    measuredBlocks,
-    figures,
-    containerWidth,
-    imageRatios,
-    columnCount,
-    textStyle,
-    manualPositions,
-    captionHeights,
-  ]);
-  const { spans, richBlocks, headingAnchors } = layout;
-
-  const updateRichBlockHeight = React.useCallback(
-    (index: number, height: number) => {
-      setRichMeasurements((current) => {
-        const heights = current.scope === richMeasurementScope ? current.heights : {};
-        if (Math.abs((heights[index] ?? 0) - height) < 2) {
-          return current.scope === richMeasurementScope
-            ? current
-            : { scope: richMeasurementScope, heights };
-        }
-        return {
-          scope: richMeasurementScope,
-          heights: { ...heights, [index]: height },
-        };
-      });
-    },
-    [richMeasurementScope],
-  );
-
-  const updateInlineMetrics = React.useCallback((metrics: Record<string, InlineMetrics>) => {
-    setInlineMetrics((current) => {
-      const changed = Object.entries(metrics).some(
-        ([key, value]) =>
-          current[key]?.width !== value.width || current[key]?.height !== value.height,
-      );
-      return changed ? { ...current, ...metrics } : current;
-    });
-  }, []);
-
-  React.useEffect(() => {
-    const pendingHeadingId = pendingLayoutHeadingRef.current;
-    const scrollContainer = scrollRef.current;
-    if (!pendingHeadingId || !scrollContainer) return;
-    const target = headingAnchors.find((heading) => heading.id === pendingHeadingId);
-    if (!target) return;
-    scrollContainer.scrollTop = Math.max(0, target.y - 16);
-    pendingLayoutHeadingRef.current = null;
-  }, [headingAnchors]);
-
-  // Avoid Math.max(...largeArray) stack overflow — use a loop instead.
-  const contentHeight = React.useMemo(() => {
-    let max = 400;
-    for (const s of spans) {
-      const bottom = s.y + (s.height ?? s.style.lineHeight) + 80;
-      if (bottom > max) max = bottom;
-    }
-    for (const b of richBlocks) {
-      const bottom = b.y + b.estimatedHeight + 80;
-      if (bottom > max) max = bottom;
-    }
-    for (const p of figPositions ?? []) {
-      const bottom = p.y + p.height + 80;
-      if (bottom > max) max = bottom;
-    }
-    return max;
-  }, [spans, richBlocks, figPositions]);
-
-  function rememberReadingPosition() {
-    const scrollTop = scrollRef.current?.scrollTop ?? 0;
-    let activeHeading: HeadingAnchor | undefined;
-    for (const heading of headingAnchors) {
-      if (heading.y <= scrollTop + 80) activeHeading = heading;
-      else break;
-    }
-    pendingLayoutHeadingRef.current = activeHeading?.id ?? null;
-  }
-
   function changeColumnCount(nextCount: ColumnCount) {
     rememberReadingPosition();
     setRequestedColumnCount(nextCount);
@@ -251,121 +93,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     rememberReadingPosition();
     resetSettings();
   }
-
-  function startDrag(e: React.PointerEvent<HTMLDivElement>, idx: number) {
-    if (!figPositions) return;
-    setFigureLayout({
-      width: containerWidth,
-      columns: columnCount,
-      readingKey,
-      positions: figPositions,
-    });
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const pos = figPositions[idx];
-    dragRef.current = {
-      figIndex: idx,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: pos.x,
-      origY: pos.y,
-      origW: pos.width,
-      origH: pos.height,
-      mode: 'move',
-    };
-    setDraggingIdx(idx);
-  }
-
-  function startResize(e: React.PointerEvent<HTMLDivElement>, idx: number) {
-    if (!figPositions) return;
-    setFigureLayout({
-      width: containerWidth,
-      columns: columnCount,
-      readingKey,
-      positions: figPositions,
-    });
-    const pos = figPositions[idx];
-    dragRef.current = {
-      figIndex: idx,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: pos.x,
-      origY: pos.y,
-      origW: pos.width,
-      origH: pos.height,
-      mode: 'resize',
-    };
-    setResizingIdx(idx);
-  }
-
-  function moveDrag(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragRef.current) return;
-    const { figIndex, startX, startY, origX, origY, origW, origH, mode } = dragRef.current;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    setFigureLayout((prev) => {
-      if (!prev || prev.width !== containerWidth) return prev;
-      const next = [...prev.positions];
-      const cur = prev.positions[figIndex];
-      if (mode === 'move') {
-        next[figIndex] = {
-          ...cur,
-          x: Math.max(0, Math.min(containerWidth - cur.width, origX + dx)),
-          y: Math.max(0, origY + dy),
-          inline: false,
-        };
-      } else {
-        next[figIndex] = {
-          ...cur,
-          width: Math.min(containerWidth, Math.max(FIGURE_MIN_W, origW + dx)),
-          height: Math.max(FIGURE_MIN_H, origH + dy),
-          inline: false,
-        };
-      }
-      return { ...prev, positions: next };
-    });
-  }
-
-  function endDrag() {
-    dragRef.current = null;
-    setDraggingIdx(null);
-    setResizingIdx(null);
-  }
-
-  function followLocalReference(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-      return;
-    const link = (event.target as Element).closest?.('a[href]');
-    const content = contentRef.current;
-    const scroll = scrollRef.current;
-    if (!link || !content || !scroll || link.getAttribute('target') === '_blank') return;
-    const url = new URL(link.getAttribute('href')!, window.location.href);
-    if (
-      url.origin !== window.location.origin ||
-      url.pathname !== window.location.pathname ||
-      !url.hash
-    )
-      return;
-    let id: string;
-    try {
-      id = decodeURIComponent(url.hash.slice(1));
-    } catch {
-      return;
-    }
-    const target = Array.from(content.querySelectorAll<HTMLElement>('[id]')).find(
-      (node) => node.id === id,
-    );
-    const heading = headingAnchors.find((anchor) => anchor.id === id);
-    if (!target && !heading) return;
-    // The original article is still mounted behind the overlay. Scope links to
-    // this reading surface instead of document.getElementById's first match.
-    event.preventDefault();
-    event.stopPropagation();
-    const y = target
-      ? target.getBoundingClientRect().top - content.getBoundingClientRect().top
-      : heading!.y;
-    scroll.scrollTop = Math.max(0, y - 16);
-  }
-
   return (
     <div
       role="dialog"

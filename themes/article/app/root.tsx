@@ -12,13 +12,14 @@ import {
   SkipTo,
   renderers as defaultRenderers,
 } from '@myst-theme/site';
-export { AppErrorBoundary as ErrorBoundary } from '@myst-theme/site';
 import { Outlet, useLoaderData } from '@remix-run/react';
 import type { NodeRenderers } from '@myst-theme/providers';
 import { mergeRenderers } from '@myst-theme/providers';
 import { JUPYTER_RENDERERS } from '@myst-theme/jupyter';
 import { ANY_RENDERERS } from '@myst-theme/anywidget';
 import { PRETEXT_RENDERERS } from '@myst-theme/pretext-widget';
+
+export { AppErrorBoundary as ErrorBoundary } from '@myst-theme/site';
 
 const RENDERERS: NodeRenderers = mergeRenderers([
   defaultRenderers,

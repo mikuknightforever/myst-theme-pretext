@@ -65,6 +65,20 @@ renderer. Unsupported extensions display a notice and their available content.
 
 ## Development acceptance fixtures
 
+From the repository root, run `bun run quality:pretext` (or
+`node scripts/check-pretext.mjs`) before changing the renderer or layout engine.
+It first builds the article theme's workspace dependencies in dependency order,
+then runs zero-warning lint, format checks, a clean library build, type checks
+and both the package and article-theme tests. Dependency builds update their
+generated output; only Pretext's `dist` directory is deleted and recreated.
+Source files are not auto-fixed. Build configuration
+excludes tests from published output, while type checks still include them.
+
+The `Pretext quality` workflow runs these checks on Windows and Linux for
+Pretext feature-branch pushes and relevant pull requests. The workflow must pass
+on GitHub before claiming remote CI verification; a local pass alone is not one.
+For module boundaries and refactoring guidance, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 - `examples/auto-entry`: no plugins, no Pretext directives, multiple articles,
   a text-only article, an explicit page opt-in and a page-level opt-out. Run `bunx mystmd start --port 3002`
   in that directory after building this repository's article theme.

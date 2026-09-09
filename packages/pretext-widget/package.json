@@ -14,9 +14,12 @@
   "license": "MIT",
   "scripts": {
     "clean": "rm -rf dist",
-    "build:esm": "tsc",
+    "build:esm": "tsc --project tsconfig.build.json",
     "build": "npm-run-all -l clean -p build:esm",
-    "test": "vitest run",
+    "compile": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
+    "lint:format": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run --threads false",
     "test:watch": "vitest watch"
   },
   "dependencies": {

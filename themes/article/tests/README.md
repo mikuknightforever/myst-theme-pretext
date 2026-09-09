@@ -2,6 +2,9 @@
 
 From the repository root (using the installed dependencies):
 
+Run `bun run quality:pretext` to check both the Pretext package and this theme.
+To run only the startup tests and theme types:
+
 ```powershell
 cd themes/article
 node ../../node_modules/vitest/vitest.mjs run tests --threads false

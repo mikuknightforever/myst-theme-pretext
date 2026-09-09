@@ -10,10 +10,11 @@ import { ArticlePageAndNavigation } from '../components/ArticlePageAndNavigation
 import { getConfig, getPage } from '../utils/loaders.server';
 import type { LoaderFunction, V2_MetaFunction } from '@remix-run/node';
 import { redirect } from '@remix-run/node';
-import { SiteManifest } from 'myst-config';
+import type { SiteManifest } from 'myst-config';
 import { getProject } from '@myst-theme/common';
-export { links } from './$';
 import { useRouteError, isRouteErrorResponse } from '@remix-run/react';
+
+export { links } from './$';
 
 type ManifestProject = Required<SiteManifest>['projects'][0];
 

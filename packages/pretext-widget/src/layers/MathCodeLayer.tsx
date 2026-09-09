@@ -80,7 +80,9 @@ export const InlineMeasurementLayer = React.memo(function InlineMeasurementLayer
       });
     };
     const observer = new ResizeObserver(report);
-    elements.forEach((element) => observer.observe(element));
+    elements.forEach((element) => {
+      observer.observe(element);
+    });
     report();
     void document.fonts?.ready.then(report);
     return () => {

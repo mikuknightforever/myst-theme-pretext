@@ -60,18 +60,8 @@ export function ColumnSelector({
               height: 30,
               border: 0,
               borderRadius: 999,
-              background: selected
-                ? isDark
-                  ? '#f8fafc'
-                  : '#111827'
-                : 'transparent',
-              color: selected
-                ? isDark
-                  ? '#0f172a'
-                  : '#ffffff'
-                : isDark
-                  ? '#cbd5e1'
-                  : '#334155',
+              background: selected ? (isDark ? '#f8fafc' : '#111827') : 'transparent',
+              color: selected ? (isDark ? '#0f172a' : '#ffffff') : isDark ? '#cbd5e1' : '#334155',
               opacity: disabled ? 0.35 : 1,
               fontSize: 12,
               fontWeight: 800,
