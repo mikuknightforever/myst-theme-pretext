@@ -21,6 +21,7 @@ import {
   useRouteError,
   isRouteErrorResponse,
   useNavigate,
+  useLocation,
 } from '@remix-run/react';
 import {
   DEFAULT_NAV_HEIGHT,
@@ -57,6 +58,7 @@ export function Document({
   head?: React.ReactNode;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const links = staticBuild
     ? {
         Link: (props: any) => <Link {...{ ...props, reloadDocument: true }} />,
@@ -88,6 +90,7 @@ export function Document({
         config={config}
         title={title}
         liveReloadListener={!staticBuild}
+        hydrationPath={staticBuild ? undefined : location.pathname + location.search}
         baseurl={baseurl}
         top={top}
       />
@@ -104,6 +107,7 @@ export function DocumentWithoutProviders({
   baseurl,
   top = DEFAULT_NAV_HEIGHT,
   liveReloadListener,
+  hydrationPath,
 }: {
   children: React.ReactNode;
   scripts?: React.ReactNode;
@@ -115,6 +119,7 @@ export function DocumentWithoutProviders({
   top?: number;
   theme?: Theme;
   liveReloadListener?: boolean;
+  hydrationPath?: string;
 }) {
   // Theme value from theme context. For a clean page load (no cookies), both ssrTheme and theme are null
   // And thus the BlockingThemeLoader is used to inject the client-preferred theme (localStorage or media query)
@@ -133,6 +138,7 @@ export function DocumentWithoutProviders({
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
+        {hydrationPath != null && <meta name="myst-document-path" content={hydrationPath} />}
         {title && <title>{title}</title>}
         <Meta />
         <Links />

@@ -14,6 +14,9 @@ tags:
   - book
 options:
   - type: boolean
+    id: pretext
+    description: Automatically show the Pretext reading entry. False disables both automatic and legacy entries; omit to keep legacy directive behavior. Pages may override this with site.pretext in frontmatter.
+  - type: boolean
     id: hide_toc
     description: Hide the table of contents
   - type: boolean

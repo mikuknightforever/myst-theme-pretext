@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="220" viewBox="0 0 640 220">
+  <rect width="640" height="220" rx="18" fill="#eef5ff"/>
+  <g fill="#fff" stroke="#477acc" stroke-width="3">
+    <rect x="24" y="56" width="242" height="108" rx="12"/>
+    <rect x="374" y="56" width="242" height="108" rx="12"/>
+  </g>
+  <path d="M282 110h68m-20-16 20 16-20 16" fill="none" stroke="#477acc" stroke-width="5"/>
+  <g font-family="sans-serif" fill="#263449" font-size="22" text-anchor="middle">
+    <text x="145" y="116">Ordinary article</text>
+    <text x="495" y="116">Automatic entry</text>
+  </g>
+</svg>

@@ -1,11 +1,11 @@
 version: 1
 project:
-  title: Pretext automatic content detection
-  plugins:
-    - demo-plugin.mjs
+  title: Pretext automatic entry acceptance
   toc:
     - file: index.md
-    - file: disabled-legacy.md
+    - file: second.md
+    - file: third.md
+    - file: disabled.md
 site:
   template: ../../../../themes/article
   options:

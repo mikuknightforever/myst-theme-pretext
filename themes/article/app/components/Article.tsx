@@ -28,6 +28,7 @@ import type { GenericParent } from 'myst-common';
 import { copyNode } from 'myst-common';
 import { SourceFileKind } from 'myst-spec-ext';
 import { MyST } from 'myst-to-react';
+import { PretextArticle } from '@myst-theme/pretext-widget';
 
 const TOP_OFFSET = 24;
 
@@ -95,11 +96,13 @@ export function Article({
             article.kind === SourceFileKind.Notebook && <NotebookToolbar showLaunch />}
           <ErrorTray pageSlug={article.slug} />
           <div id="skip-to-article" />
-          <FrontmatterParts parts={parts} keywords={keywords} hideKeywords={hideKeywords} />
-          <MyST ast={tree} />
-          <BackmatterParts parts={parts} />
-          <Footnotes />
-          <Bibliography />
+          <PretextArticle articleId={`${article.project}:${article.location}:${article.slug}`}>
+            <FrontmatterParts parts={parts} keywords={keywords} hideKeywords={hideKeywords} />
+            <MyST ast={tree} />
+            <BackmatterParts parts={parts} />
+            <Footnotes />
+            <Bibliography />
+          </PretextArticle>
           <ConnectionStatusTray />
         </ExecuteScopeProvider>
       </BusyScopeProvider>

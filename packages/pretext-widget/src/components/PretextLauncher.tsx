@@ -43,7 +43,7 @@ export function PretextLauncher({
       >
         {figureCount > 0
           ? `Found ${figureCount} draggable figure${figureCount !== 1 ? 's' : ''}. Open Pretext Mode to drag them — text reflows around all figures simultaneously.`
-          : 'Open Pretext Mode to see this article with draggable figures.'}
+          : 'Open Pretext Mode to read this article in adjustable columns.'}
       </p>
       {blockCount === 0 && (
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#94a3b8' }}>
