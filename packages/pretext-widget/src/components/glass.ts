@@ -19,16 +19,16 @@ export function glassTheme(isDark: boolean): GlassTheme {
   return isDark
     ? {
         surface: {
-          background: 'rgba(10,12,18,0.34)',
+          background: 'rgba(12,10,9,0.34)', // stone-950, like MyST's dark page
           backdropFilter: blur,
           WebkitBackdropFilter: blur,
           border: '1px solid rgba(255,255,255,0.08)',
           boxShadow:
             '0 16px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)',
-          color: '#f0f0f5',
+          color: '#f5f5f4',
         },
-        text: '#f0f0f5',
-        muted: '#8a8aa3',
+        text: '#f5f5f4',
+        muted: '#a8a29e',
         accent: '#22d3ee',
         accentBg: 'rgba(129,140,248,0.16)',
         hoverBg: 'rgba(255,255,255,0.07)',

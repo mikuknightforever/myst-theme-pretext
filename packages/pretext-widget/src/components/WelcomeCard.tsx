@@ -13,7 +13,7 @@ export function WelcomeCard({ isDark, onClose }: { isDark: boolean; onClose: () 
       aria-labelledby="pretext-welcome-title"
       style={{
         ...theme.surface,
-        background: isDark ? 'rgba(15,23,42,0.82)' : 'rgba(255,255,255,0.86)',
+        background: isDark ? 'rgba(28,25,23,0.86)' : 'rgba(255,255,255,0.86)',
         position: 'absolute',
         top: 24,
         left: '50%',

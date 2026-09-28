@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from '../components/palette.js';
 import { MyST } from 'myst-to-react';
 import type { FigureInfo, FigurePosition } from '../model.js';
 import { figureParts } from '../content-detection.js';
@@ -153,8 +154,8 @@ export function FigureCard({
     padding: '0 8px',
     border: 0,
     borderRadius: 999,
-    background: isDark ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.88)',
-    color: isDark ? '#e2e8f0' : '#334155',
+    background: isDark ? DARK.chip : 'rgba(255,255,255,0.88)',
+    color: isDark ? DARK.textStrong : '#334155',
     boxShadow: '0 1px 4px rgba(15,23,42,0.18)',
     fontSize: 11,
     fontWeight: 600,
@@ -182,8 +183,8 @@ export function FigureCard({
         touchAction: interactive ? 'auto' : 'none',
         userSelect: 'none',
         borderRadius: 16,
-        background: isDark ? '#1e293b' : '#f8fafc',
-        color: isDark ? '#e5e7eb' : '#111827',
+        background: isDark ? DARK.panel : '#f8fafc',
+        color: isDark ? DARK.text : '#111827',
         boxSizing: 'border-box',
         overflow: 'hidden',
         display: 'flex',
@@ -210,7 +211,7 @@ export function FigureCard({
             placeItems: 'center',
             cursor: isDragging ? 'grabbing' : 'grab',
             touchAction: 'none',
-            background: isDark ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.9)',
+            background: isDark ? DARK.chip : 'rgba(255,255,255,0.9)',
             boxShadow: '0 1px 4px rgba(15,23,42,0.2)',
           }}
         >
@@ -276,7 +277,7 @@ export function FigureCard({
             padding: '6px 10px 8px',
             fontSize: 11,
             lineHeight: 1.4,
-            color: isDark ? '#cbd5e1' : '#475569',
+            color: isDark ? DARK.muted : '#475569',
             borderTop: '1px solid rgba(148,163,184,0.25)',
             pointerEvents: 'auto',
             position: 'relative',

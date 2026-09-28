@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from './palette.js';
 import { useThemeSwitcher } from '@myst-theme/providers';
 import type { ColumnCount } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
@@ -206,8 +207,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         zIndex: 2147483646,
         display: 'flex',
         flexDirection: 'column',
-        background: isDark ? '#0f172a' : '#ffffff',
-        color: isDark ? '#e5e7eb' : '#111827',
+        background: isDark ? DARK.page : '#ffffff',
+        color: isDark ? DARK.text : '#111827',
         fontFamily: DEFAULT_TEXT_STYLE.fontFamily,
       }}
     >
@@ -244,15 +245,16 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           .pretext-article-header .myst-article-header-background {
             display: block;
           }
-          /* The banner sits behind the header (z-index -10); this stacking context
-             keeps it above the reader's own background. Like on the article page,
-             it extends past the card on both sides. */
-          .pretext-article-header {
-            position: relative;
-            z-index: 0;
+          /* The banner layer is positioned against the full-width header band,
+             not the theme's own header, so it spans the reader like the page. */
+          .pretext-article-header .myst-article-header {
+            position: static;
           }
           .pretext-article-header .myst-article-header-background {
-            left: -${OVERLAY_PADDING}px;
+            inset: 0;
+            width: auto;
+            height: auto;
+          }px;
             right: -${OVERLAY_PADDING}px;
             width: auto;
           }
@@ -297,7 +299,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           padding: '8px',
           borderRadius: 999,
           border: `1px solid ${isDark ? '#ffffff' : '#44403c'}`,
-          background: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.6)',
+          background: isDark ? 'rgba(28,25,23,0.6)' : 'rgba(255,255,255,0.6)',
           color: isDark ? '#ffffff' : '#44403c',
           cursor: 'pointer',
         }}
@@ -343,26 +345,34 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           flex: 1,
           overflow: 'auto',
           overscrollBehavior: 'contain',
-          background: isDark ? '#0f172a' : '#ffffff',
+          background: isDark ? DARK.page : '#ffffff',
           // The floating toolbar sits at the bottom; text scrolls underneath it.
           paddingBottom: TOOLBAR_CLEARANCE,
         }}
       >
         {header && (
+          // Full-width band (the banner covers it, as on the article page), with
+          // the card at the text's width inside.
           <div
             className="pretext-article-header"
             style={{
               // The overlay sets a reading font; the theme's header keeps the page's own.
               fontFamily: themeFont,
-              maxWidth: readingSettings.readingWidth + (outlineFits ? 240 : 0),
-              margin: '0 auto',
-              // Same inset as the text on both sides; the banner bleeds 40px past the
-              // card, so it lines up with the outline panel's outer edge.
-              padding: `24px ${24 + OVERLAY_PADDING}px 0`,
-              boxSizing: 'border-box',
+              position: 'relative',
+              zIndex: 0,
+              display: 'flow-root',
             }}
           >
-            {header}
+            <div
+              style={{
+                maxWidth: readingSettings.readingWidth + (outlineFits ? 240 : 0),
+                margin: '0 auto',
+                padding: `0 ${24 + OVERLAY_PADDING}px`,
+                boxSizing: 'border-box',
+              }}
+            >
+              {header}
+            </div>
           </div>
         )}
         <div
@@ -478,7 +488,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                 padding: '16px 12px',
                 border: '1px solid rgba(148,163,184,0.28)',
                 borderRadius: 12,
-                background: isDark ? 'rgba(30,41,59,0.88)' : 'rgba(248,250,252,0.82)',
+                background: isDark ? DARK.panelTranslucent : 'rgba(248,250,252,0.82)',
                 boxSizing: 'border-box',
               }}
             >

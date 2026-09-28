@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from './palette.js';
 import {
   DEFAULT_READING_SETTINGS,
   READING_SETTING_LIMITS,
@@ -32,8 +33,8 @@ function SettingSlider({
     height: 28,
     border: `1px solid ${isDark ? 'rgba(148,163,184,0.38)' : 'rgba(148,163,184,0.32)'}`,
     borderRadius: 8,
-    background: isDark ? 'rgba(15,23,42,0.55)' : '#f8fafc',
-    color: isDark ? '#f8fafc' : '#0f172a',
+    background: isDark ? 'rgba(28,25,23,0.55)' : '#f8fafc',
+    color: isDark ? DARK.white : '#0f172a',
     fontSize: 17,
     lineHeight: 1,
     cursor: 'pointer',
@@ -49,7 +50,7 @@ function SettingSlider({
           justifyContent: 'space-between',
           gap: 16,
           fontSize: 13,
-          color: isDark ? '#e2e8f0' : '#334155',
+          color: isDark ? DARK.textStrong : '#334155',
         }}
       >
         <span>{label}</span>

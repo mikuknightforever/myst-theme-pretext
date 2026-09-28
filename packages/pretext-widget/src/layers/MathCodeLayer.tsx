@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from '../components/palette.js';
 import { contentScrollTop } from '../scroll-geometry.js';
 import { MyST } from 'myst-to-react';
 import {
@@ -193,7 +194,7 @@ export function MathCodeLayer({
               left: span.x,
               top: span.y,
               display: 'inline-block',
-              color: isDark ? '#e5e7eb' : span.style.color,
+              color: isDark ? DARK.text : span.style.color,
               pointerEvents: span.semanticNode || span.maxWidth != null ? 'auto' : 'none',
               ...(span.code && {
                 background: isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.07)',

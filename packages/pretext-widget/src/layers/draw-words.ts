@@ -1,4 +1,5 @@
 import type { WordSpan } from '../layout.js';
+import { DARK } from '../components/palette.js';
 import type { WordMotion } from '../effects/engine.js';
 
 export interface DrawOptions {
@@ -29,7 +30,7 @@ export function drawWords(ctx: DrawingContext, spans: WordSpan[], options: DrawO
     const italic = s.italic ? 'italic ' : '';
     const weight = s.bold ? '700' : s.style.fontWeight;
     ctx.font = `${italic}${weight} ${s.style.fontSize}px ${s.style.fontFamily}`;
-    ctx.fillStyle = isDark ? '#e5e7eb' : s.style.color;
+    ctx.fillStyle = isDark ? DARK.text : s.style.color;
     const halfLeading = Math.max(0, (s.style.lineHeight - s.style.fontSize) / 2);
     const baseline = s.y - canvasTop + halfLeading + s.style.fontSize * 0.82;
     if (!motionAt) {

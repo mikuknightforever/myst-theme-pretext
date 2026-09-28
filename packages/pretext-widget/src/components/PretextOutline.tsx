@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from './palette.js';
 import { contentScrollTop, scrollTopForContentY } from '../scroll-geometry.js';
 import type { HeadingAnchor } from '../layout.js';
 
@@ -85,7 +86,13 @@ export function PretextOutline({
                       ? 'rgba(96,165,250,0.18)'
                       : 'rgba(37,99,235,0.09)'
                     : 'transparent',
-                  color: active ? (isDark ? '#93c5fd' : '#1d4ed8') : isDark ? '#cbd5e1' : '#475569',
+                  color: active
+                    ? isDark
+                      ? '#93c5fd'
+                      : '#1d4ed8'
+                    : isDark
+                      ? DARK.muted
+                      : '#475569',
                   fontFamily:
                     'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
                   fontSize: 13,

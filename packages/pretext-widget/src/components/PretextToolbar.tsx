@@ -267,7 +267,7 @@ export function PretextToolbar({
           role="tooltip"
           style={{
             ...theme.surface,
-            background: isDark ? 'rgba(15,23,42,0.88)' : 'rgba(255,255,255,0.92)',
+            background: isDark ? 'rgba(28,25,23,0.9)' : 'rgba(255,255,255,0.92)',
             position: 'absolute',
             bottom: 'calc(100% + 10px)',
             left: tip.left,

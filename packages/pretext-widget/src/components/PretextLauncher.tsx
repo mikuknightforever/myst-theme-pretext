@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { DARK } from './palette.js';
 import { createPortal } from 'react-dom';
 import { DEFAULT_TEXT_STYLE } from '../layout.js';
 
@@ -91,7 +92,7 @@ export function PretextLauncher({
         padding: '18px 20px',
         borderRadius: 18,
         border: `1px solid ${isDark ? 'rgba(148,163,184,0.38)' : 'rgba(148,163,184,0.28)'}`,
-        background: isDark ? 'rgba(30,41,59,0.92)' : 'rgba(248,250,252,0.92)',
+        background: isDark ? DARK.panelTranslucent : 'rgba(248,250,252,0.92)',
         fontFamily: DEFAULT_TEXT_STYLE.fontFamily,
       }}
     >
@@ -100,7 +101,7 @@ export function PretextLauncher({
           margin: '0 0 8px',
           fontSize: 18,
           fontWeight: 800,
-          color: isDark ? '#f8fafc' : '#111827',
+          color: isDark ? DARK.white : '#111827',
         }}
       >
         Pretext Mode
@@ -110,7 +111,7 @@ export function PretextLauncher({
           margin: '0 0 14px',
           fontSize: 14,
           lineHeight: 1.6,
-          color: isDark ? '#cbd5e1' : '#475569',
+          color: isDark ? DARK.muted : '#475569',
         }}
       >
         {figureCount > 0
@@ -129,8 +130,8 @@ export function PretextLauncher({
           border: `1px solid ${isDark ? 'rgba(226,232,240,0.3)' : 'rgba(15,23,42,0.18)'}`,
           borderRadius: 999,
           padding: '10px 16px',
-          background: isDark ? '#f8fafc' : '#111827',
-          color: isDark ? '#0f172a' : '#fff',
+          background: isDark ? DARK.white : '#111827',
+          color: isDark ? DARK.page : '#fff',
           fontWeight: 800,
           fontSize: 14,
           cursor: 'pointer',
