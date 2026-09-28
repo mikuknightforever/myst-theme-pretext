@@ -237,6 +237,25 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           .pretext-figure-card figcaption {
             display: none;
           }
+          /* The theme's header is laid out on the article page's grid, whose
+             tracks are sized for the page. Here it fills Pretext's header box. */
+          .pretext-article-header .myst-article-header,
+          .pretext-article-header .myst-article-header-content,
+          .pretext-article-header .myst-article-header-background {
+            display: block;
+          }
+          /* The banner sits behind the header (z-index -10); this stacking context
+             keeps it above the reader's own background. Like on the article page,
+             it extends past the card on both sides. */
+          .pretext-article-header {
+            position: relative;
+            z-index: 0;
+          }
+          .pretext-article-header .myst-article-header-background {
+            left: -${OVERLAY_PADDING}px;
+            right: -${OVERLAY_PADDING}px;
+            width: auto;
+          }
           /* Card frame and move/resize controls appear gently on hover. */
           .pretext-figure-card {
             box-shadow: 0 0 0 1px transparent;
@@ -337,7 +356,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               fontFamily: themeFont,
               maxWidth: readingSettings.readingWidth + (outlineFits ? 240 : 0),
               margin: '0 auto',
-              padding: '24px 24px 0',
+              // Same inset as the text on both sides; the banner bleeds 40px past the
+              // card, so it lines up with the outline panel's outer edge.
+              padding: `24px ${24 + OVERLAY_PADDING}px 0`,
               boxSizing: 'border-box',
             }}
           >
@@ -367,7 +388,11 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               position: 'relative',
               cursor: activeMode === 'explode' ? 'crosshair' : undefined,
 
-              padding: `${OVERLAY_PADDING}px`,
+              // Side insets are margins, not padding: the text layers are
+              // absolutely positioned, and absolute children ignore padding, which
+              // had shifted all text 40px left of centre.
+              padding: `${OVERLAY_PADDING}px 0`,
+              margin: `0 ${OVERLAY_PADDING}px`,
               minHeight: contentHeight,
               boxSizing: 'border-box',
             }}
