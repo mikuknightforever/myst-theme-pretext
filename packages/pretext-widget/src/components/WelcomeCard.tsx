@@ -41,17 +41,17 @@ export function WelcomeCard({ isDark, onClose }: { isDark: boolean; onClose: () 
         Welcome to Evidence Pretext Reader!
       </h2>
       <p style={paragraph}>
-        This reader arranges the article itself, in the blink of an eye, the way a magazine designer
-        would. Pick one to four columns, justified text or a different text size, and every line is
-        placed again instantly.
+        This reader lays out the article itself instead of leaving it to the browser, so changes
+        happen instantly. You can read in one to four columns, justify the text, or change the text
+        size and spacing.
       </p>
       <p style={paragraph}>
-        Figures are yours to arrange. <strong>Drag a figure to move it anywhere in the text</strong>
-        , and the words flow around it. Pull its bottom-right corner to make it bigger or smaller.
+        You can also <strong>drag any figure to another place in the text</strong>, and the text
+        moves around it. To resize a figure, drag its bottom-right corner.
       </p>
       <p style={{ ...paragraph, color: theme.muted, fontSize: 13 }}>
-        Tip: move your mouse quickly across the words and watch them scatter. The toolbar at the
-        bottom has more effects and settings.
+        Move your mouse quickly over the words to scatter them. You can change or turn off this
+        effect in the toolbar at the bottom.
       </p>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
         <button

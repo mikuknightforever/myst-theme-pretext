@@ -168,7 +168,6 @@ const EFFECTS: Array<{ mode: EffectMode; label: string }> = [
 ];
 
 export function PretextToolbar({
-  figureCount,
   columnCount,
   maxColumnCount,
   isDark,
@@ -184,7 +183,8 @@ export function PretextToolbar({
   onEffectModeChange,
   onClose,
 }: {
-  figureCount: number;
+  /** Number of figure cards (kept for callers; not shown). */
+  figureCount?: number;
   columnCount: ColumnCount;
   maxColumnCount: ColumnCount;
   isDark: boolean;
@@ -333,9 +333,7 @@ export function PretextToolbar({
       >
         <span
           tabIndex={0}
-          {...tipFor(
-            `Evidence Pretext Reader · ${figureCount} figure${figureCount !== 1 ? 's' : ''}: drag to move, pull a corner to resize`,
-          )}
+          {...tipFor('Evidence Pretext Reader')}
           style={{
             display: 'flex',
             alignItems: 'center',

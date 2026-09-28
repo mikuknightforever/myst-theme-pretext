@@ -35,24 +35,13 @@ function FlaskIcon() {
 }
 
 /** Round icon button matching the theme switcher; no space taken in the article. */
-function IconLauncher({
-  isDark,
-  figureCount,
-  onOpen,
-}: {
-  isDark: boolean;
-  figureCount: number;
-  onOpen: () => void;
-}) {
+function IconLauncher({ isDark, onOpen }: { isDark: boolean; onOpen: () => void }) {
   const [slot, setSlot] = React.useState<HTMLElement | null | undefined>(undefined);
   React.useEffect(() => {
     setSlot(document.getElementById(PRETEXT_LAUNCHER_SLOT_ID));
   }, []);
   if (slot === undefined) return null; // not mounted yet (and during server rendering)
-  const label =
-    figureCount > 0
-      ? `Open Pretext Mode (${figureCount} draggable figure${figureCount !== 1 ? 's' : ''})`
-      : 'Open Pretext Mode';
+  const label = 'Open Pretext Mode';
   const button = (
     <button
       type="button"
@@ -94,8 +83,7 @@ export function PretextLauncher({
   /** `icon` for the automatic entry; `card` for a directive the author placed. */
   variant?: 'icon' | 'card';
 }) {
-  if (variant === 'icon')
-    return <IconLauncher isDark={isDark} figureCount={figureCount} onOpen={onOpen} />;
+  if (variant === 'icon') return <IconLauncher isDark={isDark} onOpen={onOpen} />;
   return (
     <section
       style={{
