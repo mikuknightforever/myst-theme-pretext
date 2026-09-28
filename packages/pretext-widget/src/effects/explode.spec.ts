@@ -3,6 +3,7 @@ import {
   EXPLODE_RADIUS,
   EXPLODE_TOTAL_MS,
   explodeOffset,
+  applyExplodeTransforms,
   isBurstActive,
   type Burst,
 } from './explode.js';
@@ -46,5 +47,36 @@ describe('click-to-explode offsets', () => {
 
   test('the same word and burst always give the same motion', () => {
     expect(explodeOffset(140, 90, 5, burst, 1400)).toEqual(explodeOffset(140, 90, 5, burst, 1400));
+  });
+});
+
+describe('exploding DOM tokens (citations, links, math, code)', () => {
+  const element = (index: number) => ({
+    dataset: { pretextInline: String(index) },
+    offsetWidth: 40,
+    offsetHeight: 20,
+    style: { transform: '', transformOrigin: '' },
+  });
+  const spans = [
+    { x: 100, y: 90 },
+    { x: 100 + EXPLODE_RADIUS * 3, y: 90 },
+  ];
+
+  test('tokens near the click are moved and rotated, far ones are untouched', () => {
+    const near = element(0);
+    const far = element(1);
+    const moving = applyExplodeTransforms([near, far], spans, [burst], burst.start + 200);
+    expect(moving).toBe(true);
+    expect(near.style.transform).toMatch(/^translate\(.+px, .+px\) rotate\(.+rad\)$/);
+    expect(near.style.transformOrigin).toBe('center');
+    expect(far.style.transform).toBe('');
+  });
+
+  test('transforms are cleared once the burst is over', () => {
+    const near = element(0);
+    applyExplodeTransforms([near], spans, [burst], burst.start + 200);
+    const moving = applyExplodeTransforms([near], spans, [burst], burst.start + EXPLODE_TOTAL_MS);
+    expect(moving).toBe(false);
+    expect(near.style.transform).toBe('');
   });
 });

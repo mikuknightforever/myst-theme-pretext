@@ -265,7 +265,12 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               textStyle={textStyle}
               onMetricsChange={updateInlineMetrics}
             />
-            <MathCodeLayer spans={spans} scrollContainerRef={scrollRef} isDark={isDark} />
+            <MathCodeLayer
+              spans={spans}
+              scrollContainerRef={scrollRef}
+              isDark={isDark}
+              bursts={bursts}
+            />
             <RichBlockLayer
               richBlocks={richBlocks}
               textStyle={textStyle}

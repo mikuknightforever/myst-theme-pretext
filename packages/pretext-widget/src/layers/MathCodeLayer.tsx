@@ -9,6 +9,9 @@ import {
   type TextStyle,
   type WordSpan,
 } from '../layout.js';
+import { applyExplodeTransforms, type Burst } from '../effects/explode.js';
+
+const NO_BURSTS: Burst[] = [];
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
 const VIEWPORT_BUFFER = 500;
@@ -128,12 +131,36 @@ export function MathCodeLayer({
   spans,
   scrollContainerRef,
   isDark,
+  bursts = NO_BURSTS,
 }: {
   spans: WordSpan[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
+  /** Active click-to-explode bursts; tokens near them fly with the canvas words. */
+  bursts?: Burst[];
 }) {
+  const layerRef = React.useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
+  // Transforms are written straight to the elements each frame; React never
+  // sets `transform` here, so re-renders while scrolling leave them alone.
+  React.useEffect(() => {
+    if (bursts.length === 0) return;
+    let frame = 0;
+    const tick = () => {
+      const elements = layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]');
+      const moving = applyExplodeTransforms(elements ?? [], spans, bursts, performance.now());
+      if (moving) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      layerRef.current
+        ?.querySelectorAll<HTMLElement>('[data-pretext-inline]')
+        .forEach((element) => {
+          element.style.transform = '';
+        });
+    };
+  }, [bursts, spans]);
   React.useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -145,7 +172,7 @@ export function MathCodeLayer({
   const yMin = scrollTop - VIEWPORT_BUFFER;
   const yMax = scrollTop + (scrollContainerRef.current?.clientHeight ?? 600) + VIEWPORT_BUFFER;
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+    <div ref={layerRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
       {spans.map((span, index) => {
         if (
           !(span.code || span.math || span.semanticNode || span.maxWidth != null) ||

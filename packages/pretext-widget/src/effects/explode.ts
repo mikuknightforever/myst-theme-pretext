@@ -107,3 +107,45 @@ export function combinedOffset(
   }
   return result;
 }
+
+/** The parts of a DOM token that exploding needs; kept minimal so it is testable. */
+export interface ExplodableElement {
+  dataset: { pretextInline?: string };
+  offsetWidth: number;
+  offsetHeight: number;
+  style: { transform: string; transformOrigin: string };
+}
+
+/** Apply burst offsets to DOM-rendered tokens (citations, links, math, code) as
+ * CSS transforms, matching canvas words by span index. Returns whether any
+ * token is still displaced, so the caller knows to keep animating. */
+export function applyExplodeTransforms(
+  elements: ArrayLike<ExplodableElement>,
+  spans: ReadonlyArray<{ x: number; y: number }>,
+  bursts: Burst[],
+  now: number,
+): boolean {
+  let moving = false;
+  for (let i = 0; i < elements.length; i++) {
+    const element = elements[i];
+    const index = Number(element.dataset.pretextInline);
+    const span = spans[index];
+    const offset = span
+      ? combinedOffset(
+          span.x + element.offsetWidth / 2,
+          span.y + element.offsetHeight / 2,
+          index,
+          bursts,
+          now,
+        )
+      : null;
+    if (offset) {
+      moving = true;
+      element.style.transformOrigin = 'center';
+      element.style.transform = `translate(${offset.dx.toFixed(1)}px, ${offset.dy.toFixed(1)}px) rotate(${offset.rotation.toFixed(3)}rad)`;
+    } else if (element.style.transform) {
+      element.style.transform = '';
+    }
+  }
+  return moving;
+}
