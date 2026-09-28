@@ -60,5 +60,9 @@ export function glassButtonCss(theme: GlassTheme): string {
     .pretext-glass-btn:hover:not(:disabled):not([aria-pressed="true"]) { background: ${theme.hoverBg}; }
     .pretext-glass-btn:focus-visible { outline: 2px solid ${theme.accent}; outline-offset: 1px; }
     .pretext-glass-row::-webkit-scrollbar { display: none; }
+    @keyframes pretext-tip-in {
+      from { opacity: 0; transform: translate(-50%, 4px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
   `;
 }

@@ -5,6 +5,8 @@ import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '
 import { FigureCard } from '../figures/FigureCard.js';
 import { EffectsEngine, WAVE_MS, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
+import { useStoredFlag, WELCOME_SEEN_KEY } from '../preferences.js';
+import { WelcomeCard } from './WelcomeCard.js';
 import { contentScrollTop } from '../scroll-geometry.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
@@ -51,7 +53,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   // One engine and one animation loop for every text effect; the loop only runs
   // while something moves, and the layers redraw from the engine each frame.
   const engine = React.useMemo(() => new EffectsEngine(), []);
-  const [effectMode, setEffectMode] = React.useState<EffectMode>('none');
+  // Scatter is on by default: move the cursor quickly across the words.
+  const [effectMode, setEffectMode] = React.useState<EffectMode>('scatter');
+  const [welcomeSeen, setWelcomeSeen] = useStoredFlag(WELCOME_SEEN_KEY);
   const activeMode: EffectMode = reduceMotion ? 'none' : effectMode;
   engine.mode = activeMode;
   const loopRef = React.useRef(0);
@@ -161,11 +165,14 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   });
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // Esc first closes the welcome card, then the reader.
+      if (!welcomeSeen) setWelcomeSeen(true);
+      else onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onClose, welcomeSeen, setWelcomeSeen]);
   function changeColumnCount(nextCount: ColumnCount) {
     rememberReadingPosition();
     // Words move from where they are now to their places in the new columns.
@@ -253,6 +260,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           }
         `}
       </style>
+      {!welcomeSeen && <WelcomeCard isDark={isDark} onClose={() => setWelcomeSeen(true)} />}
       {/* The theme switch stays where the article has it (top right), outside the toolbar. */}
       <button
         type="button"

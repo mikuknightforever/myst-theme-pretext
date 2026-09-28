@@ -1,32 +1,20 @@
 import * as React from 'react';
+import {
+  browserStorage,
+  loadStoredFlag,
+  saveStoredFlag,
+  type PreferenceStorage,
+} from './preferences.js';
 
 const STORAGE_KEY = 'myst-pretext-outline-hidden-v1';
 
-type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>;
-
 /** Whether the reader hid the "On this page" panel. Shown unless explicitly hidden. */
 export function loadOutlineHidden(storage: PreferenceStorage | undefined): boolean {
-  try {
-    return storage?.getItem(STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return loadStoredFlag(storage, STORAGE_KEY);
 }
 
 export function saveOutlineHidden(storage: PreferenceStorage | undefined, hidden: boolean): void {
-  try {
-    storage?.setItem(STORAGE_KEY, String(hidden));
-  } catch {
-    // The toggle still works for this session when storage is unavailable.
-  }
-}
-
-function browserStorage(): PreferenceStorage | undefined {
-  try {
-    return typeof window === 'undefined' ? undefined : window.localStorage;
-  } catch {
-    return undefined;
-  }
+  saveStoredFlag(storage, STORAGE_KEY, hidden);
 }
 
 export function useOutlineHidden(): [boolean, () => void] {

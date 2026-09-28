@@ -57,7 +57,12 @@ space in the article. A theme can place an element with id `pretext-launcher-slo
 where the icon should go; without one the icon is fixed to the top right. Legacy
 `{pretext-widget}` directives still show their inline card where the author put it.
 
-In Pretext mode a translucent toolbar floats at the bottom:
+The first time a reader opens it, a small welcome card at the top explains, in
+plain words, what the reader does and that figures can be moved and resized. It
+is dismissed with "Start reading" (or Esc) and not shown again on that device.
+
+In Pretext mode a translucent toolbar floats at the bottom; every item shows a
+tooltip on hover or keyboard focus:
 
 - **Columns**: an icon that opens 1 to 4 columns (a count is disabled when the width
   cannot fit it).
@@ -70,7 +75,7 @@ In Pretext mode a translucent toolbar floats at the bottom:
   between their words (each piece keeps the link and hover preview), so a long
   reference no longer leaves the line before it ragged.
 - **Aa**: font size, line height, paragraph spacing and reading width.
-- **Text effects**, after learn-pretext.com: none (–), Scatter (words flee a fast
+- **Text effects**, after learn-pretext.com (Scatter is on by default): none (–), Scatter (words flee a fast
   cursor), Magnify (a gentle lens: words within 100 px grow up to 1.25×, each only
   as far as the gaps around it allow, so nothing overlaps or moves), and Explode
   (click the text). Scatter uses a damped spring per word pulled back to its

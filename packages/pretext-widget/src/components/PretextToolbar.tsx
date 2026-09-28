@@ -11,13 +11,21 @@ export const TOOLBAR_CLEARANCE = 88;
 
 type Popover = 'columns' | 'settings' | null;
 
+/** Handlers that show one item's tooltip (on hover or keyboard focus). */
+type TipHandlers = {
+  onPointerEnter: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerLeave: () => void;
+  onFocus: (event: React.FocusEvent<HTMLElement>) => void;
+  onBlur: () => void;
+};
+
 function IconButton({
   theme,
   pressed,
   expanded,
   disabled = false,
   label,
-  title,
+  tip,
   onClick,
   children,
 }: {
@@ -26,7 +34,7 @@ function IconButton({
   expanded?: boolean;
   disabled?: boolean;
   label: string;
-  title?: string;
+  tip?: TipHandlers;
   onClick?: () => void;
   children: React.ReactNode;
 }) {
@@ -38,7 +46,7 @@ function IconButton({
       aria-label={label}
       aria-pressed={pressed}
       aria-expanded={expanded}
-      title={title ?? label}
+      {...tip}
       disabled={disabled}
       onClick={onClick}
       style={{
@@ -200,6 +208,35 @@ export function PretextToolbar({
   const toggle = (next: Popover) => setPopover((current) => (current === next ? null : next));
   const justified = readingSettings.textAlign === 'justify';
 
+  // Tooltips: one element above the pill, placed over the hovered item (the
+  // pill itself scrolls sideways on narrow screens and would clip them).
+  const [tip, setTip] = React.useState<{ text: string; left: number } | null>(null);
+  const tipTimer = React.useRef(0);
+  React.useEffect(() => () => window.clearTimeout(tipTimer.current), []);
+  const hideTip = React.useCallback(() => {
+    window.clearTimeout(tipTimer.current);
+    setTip(null);
+  }, []);
+  const tipFor = (text: string): TipHandlers => {
+    const show = (element: HTMLElement) => {
+      window.clearTimeout(tipTimer.current);
+      tipTimer.current = window.setTimeout(() => {
+        const bar = toolbarRef.current?.getBoundingClientRect();
+        const item = element.getBoundingClientRect();
+        if (bar) setTip({ text, left: item.left + item.width / 2 - bar.left });
+      }, 250);
+    };
+    return {
+      onPointerEnter: (event) => show(event.currentTarget),
+      onPointerLeave: hideTip,
+      onFocus: (event) => show(event.currentTarget),
+      onBlur: hideTip,
+    };
+  };
+  React.useEffect(() => {
+    if (popover) hideTip();
+  }, [popover, hideTip]);
+
   React.useEffect(() => {
     if (!popover) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
@@ -225,6 +262,28 @@ export function PretextToolbar({
       }}
     >
       <style>{glassButtonCss(theme)}</style>
+      {tip && !popover && (
+        <div
+          role="tooltip"
+          style={{
+            ...theme.surface,
+            background: isDark ? 'rgba(15,23,42,0.88)' : 'rgba(255,255,255,0.92)',
+            position: 'absolute',
+            bottom: 'calc(100% + 10px)',
+            left: tip.left,
+            transform: 'translateX(-50%)',
+            padding: '6px 10px',
+            borderRadius: 10,
+            fontSize: 12,
+            fontWeight: 500,
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            animation: 'pretext-tip-in 120ms ease-out both',
+          }}
+        >
+          {tip.text}
+        </div>
+      )}
       {popover === 'columns' && (
         <div
           role="dialog"
@@ -258,6 +317,7 @@ export function PretextToolbar({
         />
       )}
       <div
+        onClick={hideTip}
         className="pretext-glass-row"
         style={{
           ...theme.surface,
@@ -272,7 +332,10 @@ export function PretextToolbar({
         }}
       >
         <span
-          title={`${figureCount} draggable figure${figureCount !== 1 ? 's' : ''} · drag figures to move, their corner to resize · Esc to exit`}
+          tabIndex={0}
+          {...tipFor(
+            `Evidence Pretext Reader · ${figureCount} figure${figureCount !== 1 ? 's' : ''}: drag to move, pull a corner to resize`,
+          )}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -296,6 +359,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label={`Columns: ${columnCount}`}
+          tip={tipFor(`Columns (${columnCount})`)}
           expanded={popover === 'columns'}
           onClick={() => toggle('columns')}
         >
@@ -304,9 +368,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label="Justify text"
-          title={
-            justified ? 'Justified (click for left aligned)' : 'Left aligned (click to justify)'
-          }
+          tip={tipFor(justified ? 'Justified text (click for left aligned)' : 'Justify text')}
           pressed={justified}
           onClick={() => onReadingSettingsChange({ textAlign: justified ? 'left' : 'justify' })}
         >
@@ -315,6 +377,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label="Reading settings"
+          tip={tipFor('Text size and spacing')}
           expanded={popover === 'settings'}
           onClick={() => toggle('settings')}
         >
@@ -334,11 +397,11 @@ export function PretextToolbar({
                   className="pretext-glass-btn"
                   aria-checked={effectMode === mode}
                   aria-label={label}
-                  title={
+                  {...tipFor(
                     effectsAvailable
                       ? label
-                      : 'Text effects are off because your system asks for reduced motion'
-                  }
+                      : 'Text effects are off because your system asks for reduced motion',
+                  )}
                   disabled={!effectsAvailable && mode !== 'none'}
                   onClick={() => onEffectModeChange(mode)}
                   style={{
@@ -365,6 +428,7 @@ export function PretextToolbar({
           <IconButton
             theme={theme}
             label={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
+            tip={tipFor(outlineHidden ? 'Show "On this page"' : 'Hide "On this page"')}
             pressed={!outlineHidden}
             onClick={onOutlineToggle}
           >
@@ -376,7 +440,7 @@ export function PretextToolbar({
           type="button"
           className="pretext-glass-btn"
           aria-label="Exit Pretext Mode"
-          title="Exit Pretext Mode (Esc)"
+          {...tipFor('Leave the reader (Esc)')}
           onClick={onClose}
           style={{
             height: 36,
