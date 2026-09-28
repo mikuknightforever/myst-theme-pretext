@@ -33,7 +33,8 @@ export function useReadingSettings() {
   }, []);
 
   const resetSettings = React.useCallback(() => {
-    setSettings(DEFAULT_READING_SETTINGS);
+    // Alignment has its own toolbar button, so restoring the sliders keeps it.
+    setSettings((current) => ({ ...DEFAULT_READING_SETTINGS, textAlign: current.textAlign }));
   }, []);
 
   return { settings, updateSettings, resetSettings };

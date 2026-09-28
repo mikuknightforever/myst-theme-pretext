@@ -10,10 +10,8 @@ import {
   type TextStyle,
   type WordSpan,
 } from '../layout.js';
-import { applyExplodeTransforms, type Burst } from '../effects/explode.js';
-import { wordMotion } from '../effects/motion.js';
-
-const NO_BURSTS: Burst[] = [];
+import { applyExplodeTransforms } from '../effects/explode.js';
+import type { EffectsEngine } from '../effects/engine.js';
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
 const VIEWPORT_BUFFER = 500;
@@ -133,53 +131,34 @@ export function MathCodeLayer({
   spans,
   scrollContainerRef,
   isDark,
-  bursts = NO_BURSTS,
-  introClock,
-  introRunning = false,
+  engine,
 }: {
   spans: WordSpan[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
-  /** Active click-to-explode bursts; tokens near them fly with the canvas words. */
-  bursts?: Burst[];
-  /** Milliseconds into the opening animation (null when it is not running),
-   * advanced one frame at a time by the overlay. */
-  introClock?: React.RefObject<number | null>;
-  /** True until the opening animation has finished. */
-  introRunning?: boolean;
+  /** Text effects; tokens move with the canvas words on each engine frame. */
+  engine?: EffectsEngine;
 }) {
   const layerRef = React.useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
-  // Transforms are written straight to the elements each frame; React never
-  // sets `transform` here, so re-renders while scrolling leave them alone. A
-  // layout effect applies the current motion before the browser paints, so
-  // re-rendered tokens never flash in their final place mid-animation.
-  const animating = bursts.length > 0 || introRunning;
+  // Transforms are written straight to the elements on each engine frame; React
+  // never sets `transform` here, so re-renders while scrolling leave them alone.
   React.useLayoutEffect(() => {
-    if (!animating) return;
-    let frame = 0;
+    if (!engine) return;
     const apply = () => {
       const elements = layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]');
-      const now = performance.now();
-      return applyExplodeTransforms(elements ?? [], spans, bursts, now, (cx, cy, index) =>
-        wordMotion(cx, cy, index, bursts, introClock?.current ?? null, now),
+      if (!elements) return;
+      applyExplodeTransforms(
+        elements,
+        spans,
+        engine.bursts,
+        0,
+        engine.anyMotion ? (cx, cy, index) => engine.motion(index, cx, cy) : () => null,
       );
     };
-    const tick = () => {
-      if (apply() || introRunning) frame = requestAnimationFrame(tick);
-    };
     apply();
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [animating, bursts, introRunning, introClock, spans]);
-  // Clear leftover styles only once every effect has finished.
-  React.useLayoutEffect(() => {
-    if (animating) return;
-    layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]').forEach((element) => {
-      element.style.transform = '';
-      element.style.opacity = '';
-    });
-  }, [animating, spans]);
+    return engine.subscribe(apply);
+  }, [engine, spans]);
   React.useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

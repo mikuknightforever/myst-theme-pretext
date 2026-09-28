@@ -43,11 +43,9 @@ export function PretextArticle({
   return (
     <PretextModeContext.Provider key={articleId} value={mode}>
       <PretextHeaderContext.Provider value={header ?? null}>
-        {mode === 'automatic' && (
-          <div className="col-body" data-pretext-entry="automatic">
-            <PretextSession node={legacyNode} />
-          </div>
-        )}
+        {/* The automatic entry is an icon button beside the theme switcher, so it
+            takes no space in the article layout. */}
+        {mode === 'automatic' && <PretextSession node={legacyNode} variant="icon" />}
         {children}
       </PretextHeaderContext.Provider>
     </PretextModeContext.Provider>
@@ -61,7 +59,13 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
   return <PretextSession node={node} />;
 }
 
-function PretextSession({ node }: { node?: PretextWidget }) {
+function PretextSession({
+  node,
+  variant = 'card',
+}: {
+  node?: PretextWidget;
+  variant?: 'icon' | 'card';
+}) {
   const references = useReferences();
   const frontmatter = useFrontmatter();
   const header = usePretextHeader();
@@ -89,6 +93,7 @@ function PretextSession({ node }: { node?: PretextWidget }) {
         blockCount={blocks.length}
         figureCount={figures.length}
         isDark={isDark}
+        variant={variant}
         onOpen={() => setOpenedArticle(mdast)}
       />
       {open && typeof document !== 'undefined'

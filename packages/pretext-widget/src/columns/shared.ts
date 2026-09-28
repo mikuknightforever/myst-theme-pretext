@@ -39,7 +39,7 @@ export function getColumnFrames(
   containerWidth: number,
   options: ColumnLayoutOptions,
 ): ColumnFrame[] {
-  const count = Math.max(1, Math.min(3, options.count));
+  const count = Math.max(1, Math.min(4, options.count));
   const gap = count > 1 ? Math.max(0, options.gap) : 0;
   const width = Math.max(1, (containerWidth - gap * (count - 1)) / count);
   return Array.from({ length: count }, (_, index) => {

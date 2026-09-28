@@ -6,7 +6,9 @@ export function ArticlePageAndNavigation({ children }: { children: React.ReactNo
     <UiStateProvider>
       <TabStateProvider>
         <GridSystemProvider gridSystem="article-left-grid">
-          <div className="fixed top-4 right-4 z-50">
+          <div className="fixed top-4 right-4 z-50 flex items-center">
+            {/* Pretext Mode draws its launcher icon here, beside the theme switcher. */}
+            <div id="pretext-launcher-slot" className="flex items-center" />
             <ThemeButton />
           </div>
           <main

@@ -6,11 +6,6 @@ import {
 } from '../reading-settings.js';
 import { GLASS_FONT, glassTheme } from './glass.js';
 
-const ALIGNMENTS: Array<{ value: ReadingSettings['textAlign']; label: string }> = [
-  { value: 'left', label: 'Left' },
-  { value: 'justify', label: 'Justified' },
-];
-
 interface SettingSliderProps {
   label: string;
   value: number;
@@ -109,8 +104,7 @@ export function ReadingSettingsPanel({
     settings.fontSize === DEFAULT_READING_SETTINGS.fontSize &&
     settings.lineHeight === DEFAULT_READING_SETTINGS.lineHeight &&
     settings.paragraphGap === DEFAULT_READING_SETTINGS.paragraphGap &&
-    settings.readingWidth === DEFAULT_READING_SETTINGS.readingWidth &&
-    settings.textAlign === DEFAULT_READING_SETTINGS.textAlign;
+    settings.readingWidth === DEFAULT_READING_SETTINGS.readingWidth;
   const theme = glassTheme(isDark);
 
   return (
@@ -119,7 +113,7 @@ export function ReadingSettingsPanel({
       aria-label="Reading settings"
       style={{
         position: 'absolute',
-        top: 'calc(100% + 10px)',
+        bottom: 'calc(100% + 10px)',
         right: 0,
         width: 300,
         padding: 18,
@@ -136,45 +130,6 @@ export function ReadingSettingsPanel({
         <div style={{ marginTop: 3, fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
           Saved automatically on this device
         </div>
-      </div>
-      <div role="group" aria-label="Alignment" style={{ display: 'grid', gap: 7 }}>
-        <span style={{ fontSize: 13, color: isDark ? '#e2e8f0' : '#334155' }}>Alignment</span>
-        <span
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 4,
-            padding: 3,
-            borderRadius: 12,
-            background: theme.hoverBg,
-          }}
-        >
-          {ALIGNMENTS.map(({ value, label }) => {
-            const selected = settings.textAlign === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                className="pretext-glass-btn"
-                aria-pressed={selected}
-                onClick={() => onChange({ textAlign: value })}
-                style={{
-                  height: 30,
-                  border: 0,
-                  borderRadius: 9,
-                  background: selected ? theme.accentBg : 'transparent',
-                  color: selected ? theme.accent : theme.text,
-                  fontFamily: GLASS_FONT,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </span>
       </div>
       <SettingSlider
         label="Font size"

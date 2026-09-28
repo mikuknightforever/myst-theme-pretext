@@ -1,6 +1,6 @@
 import type { ContentBlock } from '../layout/types.js';
 
-export type ColumnCount = 1 | 2 | 3;
+export type ColumnCount = 1 | 2 | 3 | 4;
 
 export interface ColumnLayoutOptions {
   count: ColumnCount;

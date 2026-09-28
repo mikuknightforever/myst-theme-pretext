@@ -2,7 +2,7 @@ import * as React from 'react';
 import type { ColumnCount } from './column-layout.js';
 import { glassTheme } from './components/glass.js';
 
-const COLUMN_OPTIONS: ColumnCount[] = [1, 2, 3];
+const COLUMN_OPTIONS: ColumnCount[] = [1, 2, 3, 4];
 
 export function ColumnSelector({
   value,

@@ -108,19 +108,19 @@ export function combinedOffset(
   return result;
 }
 
-/** Motion of the token centred at (cx, cy); `alpha` is only set by the intro. */
+/** Motion of the token centred at (cx, cy). */
 export type MotionAt = (
   cx: number,
   cy: number,
   index: number,
-) => (WordOffset & { alpha?: number }) | null;
+) => (WordOffset & { scale?: number }) | null;
 
 /** The parts of a DOM token that exploding needs; kept minimal so it is testable. */
 export interface ExplodableElement {
   dataset: { pretextInline?: string };
   offsetWidth: number;
   offsetHeight: number;
-  style: { transform: string; transformOrigin: string; opacity?: string };
+  style: { transform: string; transformOrigin: string };
 }
 
 /** Apply burst offsets to DOM-rendered tokens (citations, links, math, code) as
@@ -144,11 +144,11 @@ export function applyExplodeTransforms(
     if (offset) {
       moving = true;
       element.style.transformOrigin = 'center';
-      element.style.transform = `translate(${offset.dx.toFixed(1)}px, ${offset.dy.toFixed(1)}px) rotate(${offset.rotation.toFixed(3)}rad)`;
-      element.style.opacity = offset.alpha == null ? '' : String(offset.alpha);
-    } else if (element.style.transform || element.style.opacity) {
+      const scale =
+        offset.scale != null && offset.scale !== 1 ? ` scale(${offset.scale.toFixed(3)})` : '';
+      element.style.transform = `translate(${offset.dx.toFixed(1)}px, ${offset.dy.toFixed(1)}px) rotate(${offset.rotation.toFixed(3)}rad)${scale}`;
+    } else if (element.style.transform) {
       element.style.transform = '';
-      element.style.opacity = '';
     }
   }
   return moving;

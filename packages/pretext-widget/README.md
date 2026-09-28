@@ -52,26 +52,29 @@ reading-settings implementation.
 
 ## Reading controls
 
-Besides columns and reading settings (Aa), the toolbar can hide the "On this page"
-panel on wide screens, giving its space to the text; the choice is remembered.
-Fun mode (✦) lets a click on plain text explode the nearby words, citations,
-links, math and code, which fly back
-into place after about 1.4 s. It only changes how the text is drawn, never the
-layout, ignores clicks on links, figures, math and code, and is unavailable when
-the system asks for reduced motion.
+The automatic entry is a round flask icon beside the theme switcher, so it takes no
+space in the article. A theme can place an element with id `pretext-launcher-slot`
+where the icon should go; without one the icon is fixed to the top right. Legacy
+`{pretext-widget}` directives still show their inline card where the author put it.
 
-On opening, the text plays a short "grid snap": every word starts at a random spot
-and moves in a straight line to its computed position in about 0.8 s. Words stay
-hidden until the page has settled (a few quick frames in a row and no layout change
-for 300 ms, or at most 3.5 s), so the animation runs at full frame rate instead of
-stuttering while charts render. It is skipped when the system asks for reduced
-motion.
+In Pretext mode a translucent toolbar floats at the bottom:
 
-The toolbar floats over the article as a translucent pill. Reading settings (Aa)
-include the alignment: left (default) or justified. Justified lines are stretched
-to their column or to the space beside a figure by widening word gaps; last lines of
-paragraphs stay left aligned, and a line whose gaps would exceed about 2.5 spaces
-stays left aligned too. Line breaks are the same in both modes.
+- **Columns**: an icon that opens 1 to 4 columns (a count is disabled when the width
+  cannot fit it).
+- **Justify**: toggles justified text. Lines are stretched to their column or to the
+  space beside a figure by widening word gaps; last lines of paragraphs stay left
+  aligned, as do lines whose gaps would exceed about 2.5 spaces. Line breaks are the
+  same in both modes.
+- **Aa**: font size, line height, paragraph spacing and reading width.
+- **Text effects**, after learn-pretext.com: none (–), Scatter (words flee a fast
+  cursor), Magnify (words near the cursor grow up to 1.7×), and Explode (click the
+  text). Each word is a damped spring pulled back to its laid-out position; effects
+  only change where words are drawn, never the layout, and are disabled when the
+  system asks for reduced motion.
+- **On this page** (wide screens), theme, and Exit.
+
+Text fades in over 200 ms with an opacity transition that the browser's compositor
+runs, so it stays smooth while charts are still rendering.
 
 ## Theme integration
 

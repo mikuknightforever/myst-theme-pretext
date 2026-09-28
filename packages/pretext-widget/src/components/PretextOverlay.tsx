@@ -3,9 +3,8 @@ import { useThemeSwitcher } from '@myst-theme/providers';
 import type { ColumnCount } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
 import { FigureCard } from '../figures/FigureCard.js';
-import { EXPLODE_TOTAL_MS, isBurstActive, type Burst } from '../effects/explode.js';
+import { EffectsEngine, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
-import { advanceIntro, createSettleDetector } from '../effects/intro.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
@@ -48,47 +47,62 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   const [outlineHidden, toggleOutline] = useOutlineHidden();
   const showOutline = outlineFits && !outlineHidden;
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const [funMode, setFunMode] = React.useState(false);
-  const explodeEnabled = funMode && !reduceMotion;
-  const [bursts, setBursts] = React.useState<Burst[]>([]);
-  // Grid-snap intro: a frame-driven clock (see advanceIntro). It stays at 0,
-  // with words invisible at their starting spots, until the first layout exists.
-  const introClock = React.useRef<number | null>(reduceMotion ? null : 0);
-  const [introRunning, setIntroRunning] = React.useState(!reduceMotion);
+  // One engine and one animation loop for every text effect; the loop only runs
+  // while something moves, and the layers redraw from the engine each frame.
+  const engine = React.useMemo(() => new EffectsEngine(), []);
+  const [effectMode, setEffectMode] = React.useState<EffectMode>('none');
+  const activeMode: EffectMode = reduceMotion ? 'none' : effectMode;
+  engine.mode = activeMode;
+  const loopRef = React.useRef(0);
   const burstSeed = React.useRef(1);
-  // Drop finished bursts so the canvas animation loop can stop.
+  const ensureLoop = React.useCallback(() => {
+    if (loopRef.current) return;
+    const tick = (time: number) => {
+      engine.beginFrame(time);
+      engine.notify();
+      loopRef.current = engine.isActive(time) ? requestAnimationFrame(tick) : 0;
+      // One last frame draws everything back in place.
+      if (!loopRef.current) engine.notify();
+    };
+    loopRef.current = requestAnimationFrame(tick);
+  }, [engine]);
+  React.useEffect(() => () => cancelAnimationFrame(loopRef.current), []);
   React.useEffect(() => {
-    if (bursts.length === 0) return;
-    const now = performance.now();
-    const nextEnd = Math.min(...bursts.map((burst) => burst.start + EXPLODE_TOTAL_MS));
-    const timer = setTimeout(
-      () =>
-        setBursts((current) => current.filter((burst) => isBurstActive(burst, performance.now()))),
-      Math.max(0, nextEnd - now) + 20,
-    );
-    return () => clearTimeout(timer);
-  }, [bursts]);
+    if (activeMode !== 'scatter' && activeMode !== 'magnify') engine.pointerLeave();
+    ensureLoop();
+  }, [activeMode, engine, ensureLoop]);
+  const contentPoint = (
+    event: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+  const trackPointer = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (activeMode !== 'scatter' && activeMode !== 'magnify') return;
+      const { x, y } = contentPoint(event);
+      engine.pointer(x, y);
+      ensureLoop();
+    },
+    [activeMode, engine, ensureLoop],
+  );
+  const releasePointer = React.useCallback(() => engine.pointerLeave(), [engine]);
   const explodeAt = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       // Plain canvas text has no DOM of its own, so a click on it lands on the
       // content element itself; links, figures, math and code keep their clicks.
-      if (!explodeEnabled || event.target !== event.currentTarget) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      const burst: Burst = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-        start: performance.now(),
-        seed: burstSeed.current++,
-      };
-      setBursts((current) => [...current, burst]);
+      if (activeMode !== 'explode' || event.target !== event.currentTarget) return;
+      const { x, y } = contentPoint(event);
+      engine.addBurst({ x, y, start: performance.now(), seed: burstSeed.current++ });
+      ensureLoop();
     },
-    [explodeEnabled],
+    [activeMode, engine, ensureLoop],
   );
   const [requestedColumnCount, setRequestedColumnCount] = React.useState<ColumnCount>(1);
   const maxColumnCount = Math.max(
     1,
     Math.min(
-      3,
+      4,
       Math.floor((Math.max(0, containerWidth) + COLUMN_GAP) / (COLUMN_MIN_WIDTH + COLUMN_GAP)),
     ),
   ) as ColumnCount;
@@ -112,34 +126,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
   const layoutReady = spans.length > 0 && containerWidth > 0;
-  const lastLayoutChange = React.useRef(0);
-  React.useEffect(() => {
-    lastLayoutChange.current = performance.now();
-  }, [spans]);
-  React.useEffect(() => {
-    if (!introRunning) return;
-    if (reduceMotion) {
-      introClock.current = null;
-      setIntroRunning(false);
-      return;
-    }
-    if (!layoutReady) return;
-    let frame = 0;
-    let last = performance.now();
-    // Words stay hidden (clock at 0) until the page has settled, then play.
-    const settle = createSettleDetector();
-    let playing = false;
-    const tick = (time: number) => {
-      const frameMs = time - last;
-      last = time;
-      if (!playing) playing = settle.frame(frameMs, time - lastLayoutChange.current);
-      else introClock.current = advanceIntro(introClock.current, frameMs);
-      if (introClock.current == null) setIntroRunning(false);
-      else frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [introRunning, layoutReady, reduceMotion]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
       figPositions,
@@ -233,9 +219,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         outlineToggleAvailable={outlineFits}
         outlineHidden={outlineHidden}
         onOutlineToggle={toggleOutline}
-        funMode={explodeEnabled}
-        funModeAvailable={!reduceMotion}
-        onFunModeToggle={() => setFunMode((current) => !current)}
+        effectMode={activeMode}
+        effectsAvailable={!reduceMotion}
+        onEffectModeChange={setEffectMode}
         onClose={onClose}
       />
 
@@ -246,8 +232,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           overflow: 'auto',
           overscrollBehavior: 'contain',
           background: isDark ? '#0f172a' : '#ffffff',
-          // The floating toolbar sits over the top; text scrolls underneath it.
-          paddingTop: TOOLBAR_CLEARANCE - 24,
+          // The floating toolbar sits at the bottom; text scrolls underneath it.
+          paddingBottom: TOOLBAR_CLEARANCE,
         }}
       >
         {header && (
@@ -282,9 +268,14 @@ export const PretextOverlay = React.memo(function PretextOverlay({
             ref={contentRef}
             onClickCapture={followLocalReference}
             onClick={explodeAt}
+            onPointerMove={trackPointer}
+            onPointerLeave={releasePointer}
             style={{
               position: 'relative',
-              cursor: explodeEnabled ? 'crosshair' : undefined,
+              cursor: activeMode === 'explode' ? 'crosshair' : undefined,
+              // A compositor-only fade: smooth even while charts are still rendering.
+              opacity: layoutReady ? 1 : 0,
+              transition: reduceMotion ? undefined : 'opacity 200ms ease-out',
               padding: `${OVERLAY_PADDING}px`,
               minHeight: contentHeight,
               boxSizing: 'border-box',
@@ -317,9 +308,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               width={containerWidth}
               scrollContainerRef={scrollRef}
               isDark={isDark}
-              bursts={bursts}
-              introClock={introClock}
-              introRunning={introRunning}
+              engine={engine}
             />
             <InlineMeasurementLayer
               blocks={blocks}
@@ -330,9 +319,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               spans={spans}
               scrollContainerRef={scrollRef}
               isDark={isDark}
-              bursts={bursts}
-              introClock={introClock}
-              introRunning={introRunning}
+              engine={engine}
             />
             <RichBlockLayer
               richBlocks={richBlocks}
@@ -384,22 +371,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
             </aside>
           )}
         </div>
-      </div>
-
-      <div
-        style={{
-          flex: '0 0 auto',
-          padding: '6px 24px 8px',
-          borderTop: '1px solid rgba(148,163,184,0.2)',
-          background: isDark ? '#0f172a' : '#ffffff',
-          color: isDark ? '#cbd5e1' : '#475569',
-          fontSize: 12,
-          lineHeight: 1.35,
-          pointerEvents: 'none',
-        }}
-      >
-        {explodeEnabled ? 'Click the text to explode it · ' : ''}Drag to move · drag corner handle
-        to resize · text reflows · Esc to exit
       </div>
     </div>
   );
