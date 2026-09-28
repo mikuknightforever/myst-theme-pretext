@@ -50,6 +50,15 @@ closes an open overlay, preventing the previous content/measurements from being
 reused. Reading preferences such as font size remain shared by the existing
 reading-settings implementation.
 
+## Reading controls
+
+Besides columns and reading settings (Aa), the toolbar can hide the "On this page"
+panel on wide screens, giving its space to the text; the choice is remembered.
+Fun mode (✦) lets a click on plain text explode the nearby words, which fly back
+into place after about 1.4 s. It only changes how the text is drawn, never the
+layout, ignores clicks on links, figures, math and code, and is unavailable when
+the system asks for reduced motion.
+
 ## Theme integration
 
 The package exports `PretextArticle` and `PRETEXT_RENDERERS`. A compatible theme

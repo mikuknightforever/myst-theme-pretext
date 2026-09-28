@@ -14,6 +14,12 @@ export function PretextToolbar({
   onReadingSettingsChange,
   onReadingSettingsReset,
   onThemeChange,
+  outlineToggleAvailable = false,
+  outlineHidden = false,
+  onOutlineToggle,
+  funMode = false,
+  funModeAvailable = true,
+  onFunModeToggle,
   onClose,
 }: {
   figureCount: number;
@@ -25,8 +31,34 @@ export function PretextToolbar({
   onReadingSettingsChange: (patch: Partial<ReadingSettings>) => void;
   onReadingSettingsReset: () => void;
   onThemeChange: () => void;
+  /** The outline only has room on wide screens, so the toggle only shows there. */
+  outlineToggleAvailable?: boolean;
+  outlineHidden?: boolean;
+  onOutlineToggle?: () => void;
+  funMode?: boolean;
+  /** False when the reader's system asks for reduced motion. */
+  funModeAvailable?: boolean;
+  onFunModeToggle?: () => void;
   onClose: () => void;
 }) {
+  const roundButton = (pressed: boolean): React.CSSProperties => ({
+    width: 42,
+    height: 42,
+    border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
+    borderRadius: 999,
+    background: pressed
+      ? isDark
+        ? 'rgba(96,165,250,0.2)'
+        : 'rgba(37,99,235,0.1)'
+      : isDark
+        ? '#1e293b'
+        : '#ffffff',
+    color: isDark ? '#f8fafc' : '#111827',
+    display: 'grid',
+    placeItems: 'center',
+    fontSize: 18,
+    cursor: 'pointer',
+  });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const settingsRef = React.useRef<HTMLDivElement>(null);
 
@@ -105,6 +137,71 @@ export function PretextToolbar({
             />
           )}
         </div>
+        {onFunModeToggle && (
+          <button
+            type="button"
+            onClick={onFunModeToggle}
+            disabled={!funModeAvailable}
+            aria-pressed={funMode}
+            title={
+              funModeAvailable
+                ? funMode
+                  ? 'Turn off fun mode'
+                  : 'Fun mode: click the text to explode it'
+                : 'Fun mode is off because your system asks for reduced motion'
+            }
+            aria-label="Fun mode"
+            style={{
+              ...roundButton(funMode),
+              opacity: funModeAvailable ? 1 : 0.45,
+              cursor: funModeAvailable ? 'pointer' : 'not-allowed',
+            }}
+          >
+            <span aria-hidden="true">✦</span>
+          </button>
+        )}
+        {outlineToggleAvailable && onOutlineToggle && (
+          <button
+            type="button"
+            onClick={onOutlineToggle}
+            aria-pressed={!outlineHidden}
+            title={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
+            aria-label={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
+            style={roundButton(!outlineHidden)}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <rect
+                x="1.5"
+                y="2.5"
+                width="15"
+                height="13"
+                rx="2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              <line
+                x1="11.5"
+                y1="2.5"
+                x2="11.5"
+                y2="15.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              {!outlineHidden && (
+                <rect
+                  x="11.5"
+                  y="2.5"
+                  width="5"
+                  height="13"
+                  rx="1"
+                  fill="currentColor"
+                  opacity="0.35"
+                />
+              )}
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={onThemeChange}

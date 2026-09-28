@@ -3,6 +3,8 @@ import { useThemeSwitcher } from '@myst-theme/providers';
 import type { ColumnCount } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
 import { FigureCard } from '../figures/FigureCard.js';
+import { EXPLODE_TOTAL_MS, isBurstActive, type Burst } from '../effects/explode.js';
+import { useOutlineHidden } from '../outline-preference.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
@@ -33,7 +35,42 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   const { settings: readingSettings, updateSettings, resetSettings } = useReadingSettings();
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
-  const showOutline = useMediaQuery('(min-width: 1180px)');
+  const outlineFits = useMediaQuery('(min-width: 1180px)');
+  const [outlineHidden, toggleOutline] = useOutlineHidden();
+  const showOutline = outlineFits && !outlineHidden;
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const [funMode, setFunMode] = React.useState(false);
+  const explodeEnabled = funMode && !reduceMotion;
+  const [bursts, setBursts] = React.useState<Burst[]>([]);
+  const burstSeed = React.useRef(1);
+  // Drop finished bursts so the canvas animation loop can stop.
+  React.useEffect(() => {
+    if (bursts.length === 0) return;
+    const now = performance.now();
+    const nextEnd = Math.min(...bursts.map((burst) => burst.start + EXPLODE_TOTAL_MS));
+    const timer = setTimeout(
+      () =>
+        setBursts((current) => current.filter((burst) => isBurstActive(burst, performance.now()))),
+      Math.max(0, nextEnd - now) + 20,
+    );
+    return () => clearTimeout(timer);
+  }, [bursts]);
+  const explodeAt = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // Plain canvas text has no DOM of its own, so a click on it lands on the
+      // content element itself; links, figures, math and code keep their clicks.
+      if (!explodeEnabled || event.target !== event.currentTarget) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const burst: Burst = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        start: performance.now(),
+        seed: burstSeed.current++,
+      };
+      setBursts((current) => [...current, burst]);
+    },
+    [explodeEnabled],
+  );
   const [requestedColumnCount, setRequestedColumnCount] = React.useState<ColumnCount>(1);
   const maxColumnCount = Math.max(
     1,
@@ -151,6 +188,12 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         onReadingSettingsChange={changeReadingSettings}
         onReadingSettingsReset={restoreReadingSettings}
         onThemeChange={nextTheme}
+        outlineToggleAvailable={outlineFits}
+        outlineHidden={outlineHidden}
+        onOutlineToggle={toggleOutline}
+        funMode={explodeEnabled}
+        funModeAvailable={!reduceMotion}
+        onFunModeToggle={() => setFunMode((current) => !current)}
         onClose={onClose}
       />
 
@@ -165,7 +208,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
       >
         <div
           style={{
-            maxWidth: readingSettings.readingWidth + (showOutline ? 240 : 0),
+            // Hiding the outline hands its column to the text.
+            maxWidth: readingSettings.readingWidth + (outlineFits ? 240 : 0),
             margin: '0 auto',
             padding: `0 24px`,
             display: 'grid',
@@ -178,8 +222,10 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           <div
             ref={contentRef}
             onClickCapture={followLocalReference}
+            onClick={explodeAt}
             style={{
               position: 'relative',
+              cursor: explodeEnabled ? 'crosshair' : undefined,
               padding: `${OVERLAY_PADDING}px`,
               minHeight: contentHeight,
               boxSizing: 'border-box',
@@ -212,6 +258,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               width={containerWidth}
               scrollContainerRef={scrollRef}
               isDark={isDark}
+              bursts={bursts}
             />
             <InlineMeasurementLayer
               blocks={blocks}
@@ -282,7 +329,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           pointerEvents: 'none',
         }}
       >
-        Drag to move · drag corner handle to resize · text reflows · Esc to exit
+        {explodeEnabled ? 'Click the text to explode it · ' : ''}Drag to move · drag corner handle
+        to resize · text reflows · Esc to exit
       </div>
     </div>
   );
