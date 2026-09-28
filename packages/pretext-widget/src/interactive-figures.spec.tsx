@@ -6,7 +6,13 @@ import { isInteractiveOutputFigure, isStaticFigure } from './content-detection.j
 import { figureHeightForWidth, getFigureDisplaySize } from './figure-layout.js';
 import { INTERACTIVE_FIGURE_HEADER_H } from './config.js';
 
-vi.mock('myst-to-react', () => ({ MyST: () => <span>rendered output</span> }));
+const rendered = vi.hoisted(() => ({ asts: [] as any[] }));
+vi.mock('myst-to-react', () => ({
+  MyST: ({ ast }: { ast: any }) => {
+    rendered.asts.push(ast);
+    return <span>rendered output</span>;
+  },
+}));
 
 import { FigureCard } from './figures/FigureCard.js';
 
@@ -94,6 +100,32 @@ describe('interactive notebook-output figures', () => {
     expect(figureHeightForWidth(fig, 240, ratio, 50)).toBe(
       Math.round(240 * ratio) + INTERACTIVE_FIGURE_HEADER_H + 50,
     );
+  });
+
+  test('renders the figure container without its caption, so MyST adds the notebook bar', () => {
+    rendered.asts = [];
+    const node = figure({ type: 'outputs', id: 'out-1', children: [output('a')] });
+    renderToStaticMarkup(
+      <FigureCard
+        fig={{ label: 'Figure 4', imageUrl: null, interactive: true, mdastNode: node }}
+        pos={{ x: 0, y: 0, width: 480, height: 300, inline: true }}
+        isDragging={false}
+        isResizing={false}
+        onPointerDown={() => {}}
+        onPointerMove={() => {}}
+        onPointerUp={() => {}}
+        onPointerCancel={() => {}}
+        onResizePointerDown={() => {}}
+        index={0}
+        isDark={false}
+      />,
+    );
+    const container = rendered.asts.flat().find((n: any) => n?.type === 'container');
+    expect(container).toBeDefined();
+    expect(container.kind).toBe('figure');
+    expect(container.children.map((c: any) => c.type)).toEqual(['outputs']);
+    expect(container.identifier).toBeUndefined();
+    expect(node.children.map((c: any) => c.type)).toEqual(['outputs', 'caption']);
   });
 
   test('only the header starts a drag; the output keeps pointer events', () => {

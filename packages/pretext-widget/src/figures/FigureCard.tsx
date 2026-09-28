@@ -217,7 +217,11 @@ export function FigureCard({
       >
         {interactive ? (
           <ScaledOutput
-            body={body}
+            // The whole container, minus its caption (shown below by the card), goes
+            // through MyST's own figure renderer, which adds the notebook source bar
+            // and compute controls (e.g. the power button) around the output. The
+            // card root already carries the figure's id, so the copy drops it.
+            body={[{ ...fig.mdastNode, html_id: undefined, identifier: undefined, children: body }]}
             width={Math.max(1, pos.width - 4)}
             height={Math.max(1, pos.height - 4 - INTERACTIVE_FIGURE_HEADER_H - captionHeight)}
             onNaturalSize={reportNaturalRatio}

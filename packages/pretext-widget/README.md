@@ -63,7 +63,9 @@ The integration reads the AST without rewriting it. Standard static figures are
 detected automatically. A figure whose body is a single notebook output (for
 example a Plotly chart) also becomes a card: it is dragged by its header strip so
 the output keeps hover, zoom and pan, and it is rendered at article width and
-scaled to the card's size. Compound, linked and other interactive content retains
+scaled to the card's size. The figure goes through MyST's own figure renderer, so
+notebook outputs keep their source bar and compute controls (such as the power
+button), scaled together with the output. Compound, linked and other interactive content retains
 its native renderer. Unsupported extensions display a notice and their available content.
 
 ## Development acceptance fixtures
