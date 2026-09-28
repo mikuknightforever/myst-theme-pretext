@@ -30,6 +30,13 @@ export interface PlacedWord {
 }
 
 export const TRANSITION_MS = 450;
+/** Load wave: a front sweeps diagonally across the view and each word it
+ * passes stands up and sits back down, like a stadium's Mexican wave. */
+export const WAVE_MS = 1300;
+const WAVE_SPEED = 2; // px per ms along the front
+const WAVE_PASS_MS = 320; // how long one word takes to stand up and sit down
+const WAVE_LIFT = 7;
+const WAVE_GROWTH = 0.04;
 
 function easeOutCubic(p: number): number {
   return 1 - (1 - p) ** 3;
@@ -54,6 +61,7 @@ export class EffectsEngine {
    * leaves, around the last cursor position. */
   private lens = 0;
   private lensAt: { x: number; y: number } | null = null;
+  private wave: { start: number } | null = null;
   private viewTop = 0;
   private viewHeight = 800;
   private transition: { start: number; viewTop: number; from: PlacedWord[] } | null = null;
@@ -62,6 +70,11 @@ export class EffectsEngine {
   setView(top: number, height: number) {
     this.viewTop = top;
     this.viewHeight = height;
+  }
+
+  /** Start the load wave over the text now on screen. */
+  startWave(now: number) {
+    this.wave = { start: now };
   }
 
   /** Before a relayout (e.g. a column change): remember where every word was
@@ -105,7 +118,8 @@ export class EffectsEngine {
       this.lens > 0 ||
       this.words.size > 0 ||
       this.bursts.some((burst) => isBurstActive(burst, now)) ||
-      (this.transition != null && now - this.transition.start < TRANSITION_MS)
+      (this.transition != null && now - this.transition.start < TRANSITION_MS) ||
+      (this.wave != null && now - this.wave.start < WAVE_MS)
     );
   }
 
@@ -114,6 +128,7 @@ export class EffectsEngine {
     this.now = now;
     this.bursts = this.bursts.filter((burst) => isBurstActive(burst, now));
     if (this.transition && now - this.transition.start >= TRANSITION_MS) this.transition = null;
+    if (this.wave && now - this.wave.start >= WAVE_MS) this.wave = null;
     if (this.cursor && this.lastCursor) {
       const moved = Math.hypot(
         this.cursor.x - this.lastCursor.x,
@@ -178,11 +193,22 @@ export class EffectsEngine {
         state = undefined;
       }
     }
+    if (word && this.wave) {
+      const viewY = word.y - this.viewTop;
+      if (viewY > -50 && viewY < this.viewHeight + 50) {
+        const local = this.now - this.wave.start - (word.x * 0.5 + Math.max(0, viewY)) / WAVE_SPEED;
+        if (local > 0 && local < WAVE_PASS_MS) {
+          const up = Math.sin((Math.PI * local) / WAVE_PASS_MS);
+          ty -= WAVE_LIFT * up;
+          scale *= 1 + WAVE_GROWTH * up;
+        }
+      }
+    }
     if (this.lens > 0 && this.lensAt) {
       // Words grow in place, each only as far as its gaps allow (no squeezing).
       const width = word ? 2 * (cx - word.x) : undefined;
       const growth = magnifyGrowth(Math.hypot(cx - this.lensAt.x, cy - this.lensAt.y), width);
-      if (growth > 0) scale = 1 + growth * this.lens;
+      if (growth > 0) scale *= 1 + growth * this.lens;
     }
     if (!burst && !state && scale === 1 && tx === 0 && ty === 0) return null;
     return {
@@ -200,7 +226,8 @@ export class EffectsEngine {
       this.words.size > 0 ||
       this.cursor != null ||
       this.lens > 0 ||
-      this.transition != null
+      this.transition != null ||
+      this.wave != null
     );
   }
 }

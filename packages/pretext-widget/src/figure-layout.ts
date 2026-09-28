@@ -41,7 +41,7 @@ function parseDimension(value: unknown, relativeTo: number): number | null {
   return Number.isFinite(plain) ? plain : null;
 }
 
-function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): number {
+export function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): number {
   if (loadedRatio && Number.isFinite(loadedRatio) && loadedRatio > 0) return loadedRatio;
   const imageNode = findFirstImageNode(fig.mdastNode);
   const naturalW = Number(imageNode?.width ?? imageNode?.naturalWidth ?? imageNode?.originalWidth);
@@ -52,25 +52,29 @@ function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): num
   return FIGURE_FALLBACK_ASPECT_RATIO;
 }
 
-/** Smallest share of a card, and height, the figure itself keeps before its
- * caption collapses into a toggle. */
-const CAPTION_MIN_FIGURE_SHARE = 0.45;
-const CAPTION_MIN_FIGURE_H = 60;
+/** Height of the row holding the "Caption" toggle under a collapsed caption. */
+export const CAPTION_TOGGLE_H = 32;
+/** A caption taller than this share of the figure collapses (it would take
+ * over about 45% of the card). */
+const CAPTION_COLLAPSE_RATIO = 0.8;
 
-/** How a card shows its caption. Cards in their article place are sized to fit
- * it. A card resized too small collapses it so the figure keeps the space;
- * opening it adds the caption below, keeping the card's width. */
-export function captionMode(
-  position: FigurePosition,
+/** A card resized by the reader: its height follows its width, so the figure
+ * fills the card and the caption (or its toggle) sits right under it. */
+export function resizedCardLayout(
+  width: number,
+  aspectRatio: number,
   captionHeight: number | undefined,
   expanded: boolean,
-): 'inline' | 'collapsed' | 'expanded' {
-  if (position.inline || !captionHeight) return 'inline';
-  const room = position.height - captionHeight;
-  if (room >= Math.max(CAPTION_MIN_FIGURE_H, position.height * CAPTION_MIN_FIGURE_SHARE)) {
-    return 'inline';
+): { figureHeight: number; height: number; mode: 'inline' | 'collapsed' | 'expanded' } {
+  const figureHeight = Math.round(width * aspectRatio);
+  const caption = captionHeight ?? 0;
+  if (caption <= 0) return { figureHeight, height: figureHeight, mode: 'inline' };
+  if (caption <= figureHeight * CAPTION_COLLAPSE_RATIO) {
+    return { figureHeight, height: figureHeight + caption, mode: 'inline' };
   }
-  return expanded ? 'expanded' : 'collapsed';
+  return expanded
+    ? { figureHeight, height: figureHeight + caption, mode: 'expanded' }
+    : { figureHeight, height: figureHeight + CAPTION_TOGGLE_H, mode: 'collapsed' };
 }
 
 /** Interactive cards keep the output's measured aspect ratio, so their height

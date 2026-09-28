@@ -1,10 +1,10 @@
 import * as React from 'react';
 import type { ColumnCount, ColumnLayoutOptions } from '../column-layout.js';
-import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT } from '../config.js';
+import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT, FIGURE_INLINE_MAX_W } from '../config.js';
 import {
   buildInitialFigureLayout,
-  captionMode,
-  figureHeightForWidth,
+  getFigureNaturalAspectRatio,
+  resizedCardLayout,
   layoutWithFigures,
 } from '../figure-layout.js';
 import { useImageRatios } from '../hooks.js';
@@ -21,6 +21,28 @@ const EMPTY_LAYOUT: LayoutResult = {
   contentBottom: 0,
 };
 const EMPTY_HEIGHTS: Record<number, number> = {};
+
+/** Aspect ratios for notebook-output cards before their output mounts, taken
+ * from the same figures already rendered in the article behind the overlay, so
+ * cards are the right size while their (slow) charts wait to render. Outputs
+ * render at FIGURE_INLINE_MAX_W in cards; fixed-size charts keep their height. */
+function seedOutputRatios(figures: FigureInfo[]): Record<number, number> {
+  const ratios: Record<number, number> = {};
+  if (typeof document === 'undefined') return ratios;
+  figures.forEach((fig, index) => {
+    const id = fig.interactive ? (fig.mdastNode?.html_id ?? fig.mdastNode?.identifier) : null;
+    if (!id) return;
+    const onPage = Array.from(document.querySelectorAll(`[id="${CSS.escape(String(id))}"]`)).find(
+      (element) => !element.closest('[aria-modal="true"]'),
+    );
+    if (!onPage) return;
+    const caption = onPage.querySelector('figcaption');
+    const height =
+      onPage.getBoundingClientRect().height - (caption?.getBoundingClientRect().height ?? 0);
+    if (height > 0) ratios[index] = height / FIGURE_INLINE_MAX_W;
+  });
+  return ratios;
+}
 
 /** Own measurement feedback and layout state independently from overlay markup. */
 export function usePretextLayout({
@@ -98,8 +120,17 @@ export function usePretextLayout({
   }, [blocks, inlineMetrics, richBlockHeights, textStyle]);
   const loadedImageRatios = useImageRatios(figures);
   // Interactive outputs report their rendered aspect ratio instead of an image load.
-  const [outputRatios, setOutputRatios] = React.useState<Record<number, number>>({});
+  const [outputRatios, setOutputRatios] = React.useState<Record<number, number>>(() =>
+    seedOutputRatios(figures),
+  );
+  // A chart's container reports a small size while the chart is still loading;
+  // keep the size taken from the article until a realistic measurement arrives.
+  const seededRatios = React.useRef(outputRatios);
+  const confirmedRatios = React.useRef(new Set<number>());
   const updateOutputRatio = React.useCallback((index: number, ratio: number) => {
+    const seeded = seededRatios.current[index];
+    if (seeded && !confirmedRatios.current.has(index) && ratio < seeded * 0.8) return;
+    confirmedRatios.current.add(index);
     setOutputRatios((current) =>
       Math.abs((current[index] ?? 0) - ratio) < 0.005 ? current : { ...current, [index]: ratio },
     );
@@ -107,13 +138,6 @@ export function usePretextLayout({
   const imageRatios = React.useMemo(
     () => ({ ...loadedImageRatios, ...outputRatios }),
     [loadedImageRatios, outputRatios],
-  );
-  const heightForWidth = React.useCallback(
-    (index: number, width: number) =>
-      figures[index]?.interactive
-        ? figureHeightForWidth(figures[index], width, imageRatios[index], captionHeights[index])
-        : null,
-    [figures, imageRatios, captionHeights],
   );
   // Captions a reader opened on cards too small to show them inline.
   const [openCaptions, setOpenCaptions] = React.useState<ReadonlySet<number>>(() => new Set());
@@ -125,6 +149,18 @@ export function usePretextLayout({
       return next;
     });
   }, []);
+  const heightForWidth = React.useCallback(
+    (index: number, width: number) =>
+      figures[index]
+        ? resizedCardLayout(
+            width,
+            getFigureNaturalAspectRatio(figures[index], imageRatios[index]),
+            captionHeights[index],
+            openCaptions.has(index),
+          ).height
+        : null,
+    [figures, imageRatios, captionHeights, openCaptions],
+  );
   const manualPositions =
     figureLayout?.width === containerWidth &&
     figureLayout?.columns === columnCount &&
@@ -154,15 +190,23 @@ export function usePretextLayout({
         ? manualPositions[index]
         : position,
     );
-    const modes = candidates.map((position, index) =>
-      captionMode(position, captionHeights[index], openCaptions.has(index)),
-    );
-    // An opened caption adds its height below the figure; text flows around it.
-    const shown = candidates.map((position, index) =>
-      modes[index] === 'expanded'
-        ? { ...position, height: position.height + captionHeights[index] }
-        : position,
-    );
+    // Cards the reader resized: height follows width, so the figure fills the
+    // card and its caption (or the caption toggle) sits right under it.
+    const modes: Array<'inline' | 'collapsed' | 'expanded'> = [];
+    const shown = candidates.map((position, index) => {
+      if (position.inline) {
+        modes.push('inline');
+        return position;
+      }
+      const card = resizedCardLayout(
+        position.width,
+        getFigureNaturalAspectRatio(figures[index], imageRatios[index]),
+        captionHeights[index],
+        openCaptions.has(index),
+      );
+      modes.push(card.mode);
+      return { ...position, height: card.height };
+    });
     const result = layoutWithFigures(
       measuredBlocks,
       shown,
@@ -171,16 +215,7 @@ export function usePretextLayout({
       columnOptions,
       opening,
     );
-    return {
-      ...result,
-      // Dragging and resizing work on the card without its opened caption.
-      basePositions: result.positions.map((position, index) =>
-        modes[index] === 'expanded'
-          ? { ...position, height: position.height - captionHeights[index] }
-          : position,
-      ),
-      captionModes: modes,
-    };
+    return { ...result, basePositions: result.positions, captionModes: modes };
   }, [
     openCaptions,
     measuredBlocks,

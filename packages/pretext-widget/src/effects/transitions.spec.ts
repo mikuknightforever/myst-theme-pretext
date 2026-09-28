@@ -35,3 +35,39 @@ describe('column switch transition', () => {
     expect(engine.motion(0, 0, 0, span('alpha', 10, 100))).toBeNull();
   });
 });
+
+describe('load wave (text doing a Mexican wave)', () => {
+  test('words further along stand up later, then sit back down, and the wave ends', async () => {
+    const { WAVE_MS } = await import('./engine.js');
+    const engine = new EffectsEngine();
+    engine.setView(0, 800);
+    engine.startWave(0);
+    const lift = (t: number, s: { text: string; x: number; y: number }) => {
+      engine.beginFrame(t);
+      return engine.motion(0, 0, 0, s)?.dy ?? 0;
+    };
+    const firstUp = (s: { text: string; x: number; y: number }) => {
+      for (let t = 0; t < WAVE_MS; t += 8) if (lift(t, s) < -0.5) return t;
+      return Infinity;
+    };
+    const near = span('near', 0, 20);
+    const far = span('far', 900, 700);
+    expect(firstUp(near)).toBeLessThan(firstUp(far));
+    expect(firstUp(far)).toBeLessThan(WAVE_MS);
+    let highest = 0;
+    for (let t = 0; t < WAVE_MS; t += 4) highest = Math.min(highest, lift(t, near));
+    expect(highest).toBeLessThan(-5); // it really stands up
+    expect(lift(WAVE_MS, near)).toBe(0);
+    expect(engine.isActive(WAVE_MS)).toBe(false);
+  });
+
+  test('words below the view are left alone', () => {
+    const engine = new EffectsEngine();
+    engine.setView(0, 800);
+    engine.startWave(0);
+    for (let t = 0; t < 1200; t += 16) {
+      engine.beginFrame(t);
+      expect(engine.motion(0, 0, 0, span('off', 10, 2000))).toBeNull();
+    }
+  });
+});

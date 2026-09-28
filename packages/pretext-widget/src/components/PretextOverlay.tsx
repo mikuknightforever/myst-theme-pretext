@@ -3,7 +3,7 @@ import { useThemeSwitcher } from '@myst-theme/providers';
 import type { ColumnCount } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
 import { FigureCard } from '../figures/FigureCard.js';
-import { EffectsEngine, type EffectMode } from '../effects/engine.js';
+import { EffectsEngine, WAVE_MS, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
 import { contentScrollTop } from '../scroll-geometry.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
@@ -132,15 +132,19 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
   const layoutReady = spans.length > 0 && containerWidth > 0;
-  // Load sweep: as soon as text is laid out, one translucent band sweeps
-  // diagonally across the view. It is a CSS transform animation, which the
-  // compositor runs even while charts keep the main thread busy.
-  const [sweep, setSweep] = React.useState<'pending' | 'running' | 'done'>(
-    reduceMotion ? 'done' : 'pending',
-  );
+  // Load wave: as soon as text is laid out, the words on screen do a Mexican
+  // wave. Notebook charts in figure cards (Plotly: over a second of main-thread
+  // work) mount only after it, so the wave runs on an idle page.
+  const [outputsReady, setOutputsReady] = React.useState(reduceMotion);
+  const waveStarted = React.useRef(false);
   React.useEffect(() => {
-    if (sweep === 'pending' && layoutReady) setSweep('running');
-  }, [sweep, layoutReady]);
+    if (outputsReady || !layoutReady || waveStarted.current) return;
+    waveStarted.current = true;
+    engine.startWave(performance.now());
+    ensureLoop();
+    const timer = setTimeout(() => setOutputsReady(true), WAVE_MS + 50);
+    return () => clearTimeout(timer);
+  }, [engine, ensureLoop, layoutReady, outputsReady]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
       figPositions: basePositions,
@@ -246,39 +250,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           @media (hover: none) {
             .pretext-card-chrome { opacity: 1; }
           }
-          @keyframes pretext-sweep {
-            from { transform: translateX(-60%); }
-            to { transform: translateX(60%); }
           }
         `}
       </style>
-      {sweep === 'running' && (
-        <div
-          aria-hidden="true"
-          className="pretext-load-sweep"
-          onAnimationEnd={() => setSweep('done')}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 90,
-            pointerEvents: 'none',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              inset: '-20% -60%',
-              background: `linear-gradient(110deg, transparent 38%, ${
-                isDark ? 'rgba(34,211,238,0.22)' : 'rgba(99,102,241,0.18)'
-              } 50%, transparent 62%)`,
-              mixBlendMode: isDark ? 'screen' : 'multiply',
-              animation: 'pretext-sweep 1100ms cubic-bezier(0.4, 0, 0.2, 1) both',
-              willChange: 'transform',
-            }}
-          />
-        </div>
-      )}
       {/* The theme switch stays where the article has it (top right), outside the toolbar. */}
       <button
         type="button"
@@ -418,6 +392,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               scrollContainerRef={scrollRef}
               isDark={isDark}
               engine={engine}
+              contentHeight={contentHeight}
             />
             <InlineMeasurementLayer
               blocks={blocks}
@@ -453,6 +428,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   onCaptionHeightChange={updateCaptionHeight}
                   onNaturalRatioChange={updateOutputRatio}
                   captionMode={captionModes[i]}
+                  deferOutput={!outputsReady}
                   onToggleCaption={toggleCaption}
                   isDark={isDark}
                 />

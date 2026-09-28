@@ -13,9 +13,13 @@ export function WordCanvas({
   scrollContainerRef,
   isDark,
   engine,
+  contentHeight,
 }: {
   spans: WordSpan[];
   width: number;
+  /** Bottom of the content: the canvas never extends past it, or its drawing
+   * buffer would add empty scrollable space at the end of the article. */
+  contentHeight?: number;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
   /** Text effects; each animation frame redraws with the engine's word motion. */
@@ -38,8 +42,12 @@ export function WordCanvas({
     if (!ctx) return;
 
     const viewH = container.clientHeight;
-    const canvasH = viewH + 2 * CANVAS_BUFFER;
     const canvasTop = Math.max(0, viewTop() - CANVAS_BUFFER);
+    const buffered = viewH + 2 * CANVAS_BUFFER;
+    const canvasH = Math.max(
+      1,
+      contentHeight != null ? Math.min(buffered, contentHeight - canvasTop) : buffered,
+    );
 
     const dpr = window.devicePixelRatio || 1;
     const needW = Math.round(width * dpr);
@@ -71,7 +79,7 @@ export function WordCanvas({
         ? (index, cx, cy, span) => engine.motion(index, cx, cy, span)
         : null,
     });
-  }, [spans, width, scrollContainerRef, isDark, engine, viewTop]);
+  }, [spans, width, scrollContainerRef, isDark, engine, viewTop, contentHeight]);
 
   React.useEffect(() => engine?.subscribe(draw), [engine, draw]);
 

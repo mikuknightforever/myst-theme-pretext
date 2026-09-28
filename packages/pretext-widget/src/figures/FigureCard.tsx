@@ -3,6 +3,7 @@ import { MyST } from 'myst-to-react';
 import type { FigureInfo, FigurePosition } from '../model.js';
 import { figureParts } from '../content-detection.js';
 import { FIGURE_INLINE_MAX_W } from '../config.js';
+import { CAPTION_TOGGLE_H } from '../figure-layout.js';
 
 /** Render an output at article width and scale it into the card. MyST output
  * wrappers cap themselves at their container's width, and charts such as Plotly
@@ -92,6 +93,7 @@ export function FigureCard({
   onNaturalRatioChange,
   captionMode = 'inline',
   onToggleCaption,
+  deferOutput = false,
 }: {
   fig: FigureInfo;
   pos: FigurePosition;
@@ -109,6 +111,9 @@ export function FigureCard({
   /** Collapsed on cards too small for their caption; expanded adds it below. */
   captionMode?: CaptionMode;
   onToggleCaption?: (index: number) => void;
+  /** Keep a notebook output (e.g. Plotly, which is slow to render) unmounted
+   * for now, showing a still placeholder of the same size. */
+  deferOutput?: boolean;
 }) {
   const active = isDragging || isResizing;
   const { body, captions } = figureParts(fig.mdastNode);
@@ -236,7 +241,17 @@ export function FigureCard({
           justifyContent: 'center',
         }}
       >
-        {interactive ? (
+        {interactive && deferOutput ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 8,
+              borderRadius: 10,
+              background: isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.04)',
+            }}
+          />
+        ) : interactive ? (
           <ScaledOutput
             // The whole container, minus its caption (shown below by the card), goes
             // through MyST's own figure renderer, which adds the notebook source bar
@@ -244,7 +259,7 @@ export function FigureCard({
             // card root already carries the figure's id, so the copy drops it.
             body={[{ ...fig.mdastNode, html_id: undefined, identifier: undefined, children: body }]}
             width={Math.max(1, pos.width)}
-            height={Math.max(1, pos.height - (collapsed ? 0 : captionHeight))}
+            height={Math.max(1, pos.height - (collapsed ? CAPTION_TOGGLE_H : captionHeight))}
             onNaturalSize={reportNaturalRatio}
           />
         ) : (
@@ -294,16 +309,27 @@ export function FigureCard({
         </div>
       )}
       {collapsed && (
-        <button
-          type="button"
-          onClick={toggle}
-          onPointerDown={(event) => event.stopPropagation()}
-          aria-label="Show caption"
-          title="Show caption"
-          style={{ ...chip, position: 'absolute', left: 8, bottom: 8, zIndex: 31 }}
+        // Directly under the figure: the card is the figure plus this row.
+        <div
+          style={{
+            flex: '0 0 auto',
+            height: CAPTION_TOGGLE_H,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 8px',
+          }}
         >
-          Caption <Chevron up={false} />
-        </button>
+          <button
+            type="button"
+            onClick={toggle}
+            onPointerDown={(event) => event.stopPropagation()}
+            aria-label="Show caption"
+            title="Show caption"
+            style={chip}
+          >
+            Caption <Chevron up={false} />
+          </button>
+        </div>
       )}
 
       <div

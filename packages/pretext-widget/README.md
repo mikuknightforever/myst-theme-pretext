@@ -79,18 +79,22 @@ In Pretext mode a translucent toolbar floats at the bottom:
 - **On this page** (wide screens) and Exit. The theme switch stays where the
   article has it, at the top right.
 
-Text appears as soon as it is laid out, and one translucent band sweeps diagonally
-across the view at the same moment. The sweep is a CSS transform animation, which
-the browser's compositor runs even while charts keep the main thread busy.
+Text appears as soon as it is laid out, and the words on screen immediately do a
+Mexican wave: a front sweeps diagonally and each word stands up and sits back
+down (about 1.3 s). Notebook charts inside figure cards (Plotly takes over a
+second of main-thread work) mount only after the wave, so it runs at full frame
+rate; until then each card shows a still placeholder at its final size, measured
+from the same figure in the article behind the overlay.
 Changing the column count moves every word from where it was on screen to its new
 place over 450 ms. Both are skipped for reduced motion.
 
 Figure cards show their frame and move/resize controls only on hover (always on
-touch screens). The caption identifies the figure; there is no extra label. When a
-resized card is too small for its caption (the figure would keep under 45% of the
-card, or under 60 px), the caption collapses into a "Caption" toggle; opening it
-keeps the card's width and adds the caption below. Moved figures keep the column
-groups and their dividers.
+touch screens). The caption identifies the figure; there is no extra label. A card
+the reader resized keeps the figure's proportions: its height follows its width,
+so the figure fills the card and the caption sits right under it. If the caption
+would be taller than most of the figure, it collapses into a "Caption" toggle
+directly under the figure; opening it keeps the width and adds the caption below.
+Moved figures keep the column groups and their dividers.
 
 Layout follows pretext's pipeline: each word's width is measured once per font and
 kept with the word; columns are filled by laying a paragraph out once and taking

@@ -1,24 +1,30 @@
 import { describe, expect, test } from 'vitest';
-import { captionMode } from './figure-layout.js';
+import { CAPTION_TOGGLE_H, resizedCardLayout } from './figure-layout.js';
 
-const card = (height: number, inline = false) => ({ x: 0, y: 0, width: 300, height, inline });
+describe('resized figure cards', () => {
+  test('height follows width: the figure fills the width, the caption sits right under it', () => {
+    const card = resizedCardLayout(400, 0.5, 60, false);
+    expect(card).toEqual({ figureHeight: 200, height: 260, mode: 'inline' });
+  });
 
-describe('collapsing captions on small figure cards', () => {
-  test('cards in their article place always show the caption', () => {
-    expect(captionMode(card(120, true), 80, false)).toBe('inline');
+  test('a caption taller than most of the figure collapses into a toggle under it', () => {
+    // A tall, narrow card: the figure is 264px high, its caption would be 250px.
+    const card = resizedCardLayout(240, 1.1, 250, false);
+    expect(card.mode).toBe('collapsed');
+    expect(card.figureHeight).toBe(264);
+    expect(card.height).toBe(264 + CAPTION_TOGGLE_H);
   });
-  test('a resized card with enough room keeps its caption inside', () => {
-    expect(captionMode(card(400), 60, false)).toBe('inline');
+
+  test('opening a collapsed caption keeps the width and adds the caption below', () => {
+    const card = resizedCardLayout(240, 1.1, 250, true);
+    expect(card).toEqual({ figureHeight: 264, height: 264 + 250, mode: 'expanded' });
   });
-  test('a small card collapses the caption so the figure keeps its space', () => {
-    expect(captionMode(card(140), 90, false)).toBe('collapsed');
-    // Under 60px for the figure also collapses, even at a small share.
-    expect(captionMode(card(100), 45, false)).toBe('collapsed');
-  });
-  test('an opened caption is shown below the figure, adding height instead', () => {
-    expect(captionMode(card(140), 90, true)).toBe('expanded');
-  });
-  test('a figure without a caption has nothing to collapse', () => {
-    expect(captionMode(card(80), 0, false)).toBe('inline');
+
+  test('a figure without a caption is just the figure', () => {
+    expect(resizedCardLayout(300, 0.6, 0, false)).toEqual({
+      figureHeight: 180,
+      height: 180,
+      mode: 'inline',
+    });
   });
 });
