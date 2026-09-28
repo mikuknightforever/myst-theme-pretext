@@ -67,7 +67,10 @@ export function WordCanvas({
         }
         return measured;
       },
-      motionAt: engine?.anyMotion ? (index, cx, cy) => engine.motion(index, cx, cy) : null,
+      motionAt: engine?.anyMotion
+        ? (index, cx, cy, span) => engine.motion(index, cx, cy, span)
+        : null,
+      accent: isDark ? '#22d3ee' : '#4f46e5',
     });
   }, [spans, width, scrollContainerRef, isDark, engine, viewTop]);
 

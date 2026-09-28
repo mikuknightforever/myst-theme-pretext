@@ -74,10 +74,54 @@ describe('justified text', () => {
     for (const line of continuing) expect(rightEdge(line)).toBeCloseTo(200, 5);
   });
 
-  test('lines that would need gaps wider than 2.5 spaces stay left aligned', () => {
+  test('only lines that would need gaps wider than 5 spaces stay left aligned', () => {
     // 'aa' + gap + 20 b's = 182px; 'cccc' does not fit, leaving 18px for one gap.
-    const result = layoutBlocks([paragraph(`aa ${'b'.repeat(20)} cccc`)], [], 200, 0, justified);
-    expect(lines(result.spans)[0].map((s) => s.x)).toEqual([0, 22]);
+    const moderate = layoutBlocks([paragraph(`aa ${'b'.repeat(20)} cccc`)], [], 200, 0, justified);
+    expect(rightEdge(lines(moderate.spans)[0])).toBeCloseTo(200, 5);
+    // Short words in a wide column: no justified gap may exceed 5 spaces (30px).
+    const sparse = layoutBlocks([paragraph(`aa bbbb ${'c'.repeat(24)} dd`)], [], 200, 0, justified);
+    for (const line of lines(sparse.spans)) {
+      for (let k = 1; k < line.length; k++) {
+        expect(line[k].x - (line[k - 1].x + width(line[k - 1].text))).toBeLessThanOrEqual(30);
+      }
+    }
+  });
+
+  test('justified paragraphs choose line breaks for the whole paragraph, not greedily', () => {
+    // Stretch needed per gap for each line but the last, from the chosen breaks.
+    const badness = (texts: string[][], lineWidth: number) =>
+      texts.slice(0, -1).reduce((sum, line) => {
+        const natural = line.reduce((w, t) => w + width(t), 0) + 6 * (line.length - 1);
+        return sum + ((lineWidth - natural) / Math.max(1, line.length - 1)) ** 2;
+      }, 0);
+    // Found by search: greedy breaking scores 13025 here, the optimum 4131.
+    const words =
+      'aaaaaaaaaa bb cccc ddd eee ffffffff ggggggggg hhhhh iiii jj kkkkkkkk llllllllll mmmmmmmmm nnnnnnnn ooooo pppp';
+    const texts = (style: typeof left) =>
+      lines(layoutBlocks([paragraph(words)], [], 170, 0, style).spans).map((l) =>
+        l.map((s) => s.text),
+      );
+    const optimal = texts(justified);
+    const greedy = texts(left);
+    expect(optimal.flat()).toEqual(greedy.flat());
+    expect(badness(optimal, 170)).toBeLessThan(badness(greedy, 170));
+  });
+
+  test('a paragraph split across columns keeps the same line breaks in each part', () => {
+    const words =
+      'aaaa bbbbbbbbb cc dddddd eeeeeee f gggggggggg hh iiiii jjjjjjjjjjjj kkk ll mmmmmmm n ooooooooo ppp';
+    const block = paragraph(words);
+    const whole = lines(layoutBlocks([block], [], 170, 0, justified).spans).map((l) =>
+      l.map((s) => s.text),
+    );
+    const cut = whole[0].length + whole[1].length;
+    const first = { ...block, words: block.words.slice(0, cut), continues: true };
+    const rest = { ...block, words: block.words.slice(cut) };
+    const parts = [
+      ...lines(layoutBlocks([first], [], 170, 0, justified).spans),
+      ...lines(layoutBlocks([rest], [], 170, 0, justified).spans),
+    ].map((l) => l.map((s) => s.text));
+    expect(parts).toEqual(whole);
   });
 
   test('headings are never justified', () => {

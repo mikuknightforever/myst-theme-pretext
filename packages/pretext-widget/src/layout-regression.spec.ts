@@ -240,3 +240,36 @@ describe('layout geometry regressions', () => {
     },
   );
 });
+
+describe('reusing the opening layout pass', () => {
+  test('while every figure is inline, the reused pass equals laying out again', async () => {
+    const { buildInitialFigureLayout } = await import('./figure-layout.js');
+    const words = (n: number) => Array.from({ length: n }, (_, i) => word(`word${i}`));
+    const blocks: ContentBlock[] = [
+      { type: 'paragraph', words: words(120) },
+      { type: 'figureAnchor', figureIndex: 0 },
+      { type: 'paragraph', words: words(200) },
+    ];
+    const figures = [
+      {
+        label: 'Figure 1',
+        imageUrl: null,
+        mdastNode: { children: [{ type: 'image', width: 400, height: 200 }] },
+      },
+    ];
+    for (const count of [1, 2, 3] as const) {
+      const options = { count, gap: 32, columnHeight: 600, bandGap: 24 };
+      const { positions, layout } = buildInitialFigureLayout(
+        blocks,
+        figures,
+        1000,
+        {},
+        options,
+        style,
+      );
+      const reused = layoutWithFigures(blocks, positions, 1000, style, options, layout);
+      const fresh = layoutWithFigures(blocks, positions, 1000, style, options);
+      expect(JSON.stringify(reused)).toBe(JSON.stringify(fresh));
+    }
+  });
+});

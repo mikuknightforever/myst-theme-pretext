@@ -5,6 +5,7 @@ import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '
 import { FigureCard } from '../figures/FigureCard.js';
 import { EffectsEngine, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
+import { contentScrollTop } from '../scroll-geometry.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
@@ -58,6 +59,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   const ensureLoop = React.useCallback(() => {
     if (loopRef.current) return;
     const tick = (time: number) => {
+      const scroll = scrollRef.current;
+      if (scroll) engine.setView(contentScrollTop(scroll, contentRef.current), scroll.clientHeight);
       engine.beginFrame(time);
       engine.notify();
       loopRef.current = engine.isActive(time) ? requestAnimationFrame(tick) : 0;
@@ -126,6 +129,34 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
   const layoutReady = spans.length > 0 && containerWidth > 0;
+  // Text shows as soon as it is laid out; one wave sweeps through it once the
+  // page has gone quiet (charts rendered), so the wave itself never stutters.
+  const waveDone = React.useRef(false);
+  const lastLayoutChange = React.useRef(0);
+  React.useEffect(() => {
+    lastLayoutChange.current = performance.now();
+  }, [spans]);
+  React.useEffect(() => {
+    if (waveDone.current || reduceMotion || !layoutReady) return;
+    let frame = 0;
+    let last = performance.now();
+    const opened = last;
+    let quiet = 0;
+    const tick = (time: number) => {
+      quiet = time - last < 40 ? quiet + 1 : 0;
+      last = time;
+      const settled = quiet >= 4 && time - lastLayoutChange.current > 300;
+      if (settled || time - opened > 4000) {
+        waveDone.current = true;
+        engine.startWave(time);
+        ensureLoop();
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [engine, ensureLoop, layoutReady, reduceMotion]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
       figPositions,
@@ -149,6 +180,13 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   }, [onClose]);
   function changeColumnCount(nextCount: ColumnCount) {
     rememberReadingPosition();
+    // Words move from where they are now to their places in the new columns.
+    if (!reduceMotion && nextCount !== columnCount) {
+      const scroll = scrollRef.current;
+      if (scroll) engine.setView(contentScrollTop(scroll, contentRef.current), scroll.clientHeight);
+      engine.startTransition(spans, performance.now());
+      ensureLoop();
+    }
     setRequestedColumnCount(nextCount);
   }
 
@@ -273,9 +311,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
             style={{
               position: 'relative',
               cursor: activeMode === 'explode' ? 'crosshair' : undefined,
-              // A compositor-only fade: smooth even while charts are still rendering.
-              opacity: layoutReady ? 1 : 0,
-              transition: reduceMotion ? undefined : 'opacity 200ms ease-out',
+
               padding: `${OVERLAY_PADDING}px`,
               minHeight: contentHeight,
               boxSizing: 'border-box',

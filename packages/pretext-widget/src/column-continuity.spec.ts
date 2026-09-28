@@ -1,5 +1,5 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { layoutBlocksInColumns } from './column-layout.js';
 import { DEFAULT_TEXT_STYLE, layoutBlocks, type ContentBlock, type StyledWord } from './layout.js';
 
@@ -127,3 +127,30 @@ test.each([2, 3] as const)(
     }
   },
 );
+
+describe('fitting a paragraph into the rest of a column', () => {
+  test('a paragraph whose last line fits is kept whole, even if its trailing gap does not', async () => {
+    const { findFittingWordCount } = await import('./columns/shared.js');
+    const fitStyle = { ...DEFAULT_TEXT_STYLE, lineHeight: 20, paragraphGap: 16 };
+    const block = {
+      type: 'paragraph' as const,
+      words: Array.from({ length: 30 }, (_, i) => ({
+        text: `w${i}`,
+        bold: false,
+        italic: false,
+        code: false,
+        spaceAfter: true,
+      })),
+    };
+    const frame = { left: 0, right: 100, width: 100 };
+    const lines: Array<{ start: number; bottom: number }> = [];
+    layoutBlocks([block], [], 100, 0, fitStyle, undefined, 0, lines);
+    const lastBottom = lines[lines.length - 1].bottom;
+    // Room for every line but not for the paragraph gap after it.
+    expect(findFittingWordCount(block, [], frame, 0, lastBottom + 4, fitStyle, false)).toBe(30);
+    // One line less room: the words of the last line move on, and no others.
+    expect(findFittingWordCount(block, [], frame, 0, lastBottom - 1, fitStyle, false)).toBe(
+      lines[lines.length - 1].start,
+    );
+  });
+});

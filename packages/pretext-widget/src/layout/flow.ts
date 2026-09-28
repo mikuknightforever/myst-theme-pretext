@@ -10,11 +10,76 @@ import type {
   HeadingAnchor,
   StyledWord,
 } from './types.js';
-import { measureCached, styleForBlock } from './measurements.js';
+import { fontKeyOf, measureCached, styleForBlock } from './measurements.js';
+
+let sharedContext: { owner: Document; ctx: CanvasRenderingContext2D | null } | null = null;
+/** One canvas context for all measuring, instead of a new canvas per layout call. */
+function measuringContext(): CanvasRenderingContext2D | null {
+  if (sharedContext?.owner !== document) {
+    sharedContext = { owner: document, ctx: document.createElement('canvas').getContext('2d') };
+  }
+  return sharedContext.ctx;
+}
 
 const WORD_GAP = 6;
-/** A justified gap may grow to at most 2.5 normal spaces; wider lines stay left. */
-const JUSTIFY_MAX_EXTRA = WORD_GAP * 1.5;
+/** A justified gap may grow to at most 5 normal spaces; only lines that would
+ * need more (one or two words) stay left aligned. */
+const JUSTIFY_MAX_EXTRA = WORD_GAP * 4;
+/** Cost of a non-final line with no gap to stretch (a lone word). */
+const LONE_WORD_COST = 10_000;
+/** Small cost per line, so equally even layouts prefer fewer lines. */
+const LINE_COST = 1;
+
+/** Per word, per (line width, font): whether a justified line starts at it.
+ * Stored on the word objects so a paragraph split across columns reuses the
+ * breaks chosen for the whole paragraph. */
+const justifiedBreaks = new WeakMap<StyledWord, Map<string, boolean>>();
+
+/** Minimum-raggedness line breaking for a justified paragraph (the idea behind
+ * Knuth–Plass): choose all breaks together so the stretch is spread evenly,
+ * instead of filling each line greedily. Breaks only where the source has a
+ * space. Returns the word indices that start a line (0 excluded). */
+function chooseJustifiedBreaks(
+  words: StyledWord[],
+  widths: number[],
+  lineWidth: number,
+  lastLineIsFinal: boolean,
+): Set<number> {
+  const n = words.length;
+  const breakable = (i: number) =>
+    i === 0 || i === n || Boolean(words[i - 1].spaceAfter || words[i].spaceBefore);
+  const best = new Array<number>(n + 1).fill(Number.POSITIVE_INFINITY);
+  const from = new Array<number>(n + 1).fill(0);
+  best[0] = 0;
+  for (let j = 1; j <= n; j++) {
+    if (!breakable(j)) continue;
+    let natural = 0;
+    let gaps = 0;
+    for (let i = j - 1; i >= 0; i--) {
+      natural += widths[i];
+      if (i < j - 1 && breakable(i + 1)) {
+        natural += WORD_GAP;
+        gaps++;
+      }
+      if (natural > lineWidth && i < j - 1) break;
+      if (!breakable(i) || best[i] === Number.POSITIVE_INFINITY) continue;
+      let cost: number;
+      if (j === n && lastLineIsFinal) cost = 0;
+      else if (natural >= lineWidth) cost = 0;
+      else if (gaps === 0) cost = LONE_WORD_COST;
+      else cost = ((lineWidth - natural) / gaps / WORD_GAP) ** 2 * 100;
+      const total = best[i] + cost + LINE_COST;
+      if (total < best[j]) {
+        best[j] = total;
+        from[j] = i;
+      }
+    }
+  }
+  const starts = new Set<number>();
+  if (best[n] === Number.POSITIVE_INFINITY) return starts;
+  for (let j = n; j > 0; j = from[j]) if (from[j] > 0) starts.add(from[j]);
+  return starts;
+}
 
 interface PlacedSegment {
   from: number;
@@ -125,9 +190,12 @@ export function layoutBlocks(
   richBlockHeights?: number[],
   /** Minimum vertical distance between initial draggable-figure anchors. */
   minFigureAnchorSpacing = 0,
+  /** Receives each text line's first word index (within the block's own words)
+   * and bottom edge, so callers can cut a block at a line without laying it
+   * out again (pretext's line-by-line pattern). */
+  lineLog?: Array<{ start: number; bottom: number }>,
 ): LayoutResult {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = measuringContext();
   if (!ctx) {
     return {
       spans: [],
@@ -202,6 +270,7 @@ export function layoutBlocks(
 
     // ── Text blocks ─────────────────────────────────────────────────────────
     const blockStyle = styleForBlock(block, style);
+    const blockFont = fontKeyOf(blockStyle);
     // Inline figures reserve their height at their own figureAnchor above.
     // Letting their absolute rectangles participate here can make a later
     // figure block earlier paragraphs and create a large blank region.
@@ -229,6 +298,30 @@ export function layoutBlocks(
     const words: StyledWord[] = isListItem
       ? [{ text: '•', bold: false, italic: false, code: false, spaceAfter: true }, ...block.words]
       : block.words;
+
+    // Justified paragraphs with full-width lines get paragraph-wide breaks.
+    let forcedBreaks: Set<number> | null = null;
+    if (
+      blockStyle.textAlign === 'justify' &&
+      block.type === 'paragraph' &&
+      blockObstacles.length === 0 &&
+      words.length > 1
+    ) {
+      const key = `${containerWidth}|${blockStyle.fontFamily}|${blockStyle.fontSize}|${blockStyle.fontWeight}`;
+      const cached = words.slice(1).map((word) => justifiedBreaks.get(word)?.get(key));
+      if (cached.every((value) => value !== undefined)) {
+        forcedBreaks = new Set(cached.flatMap((value, i) => (value ? [i + 1] : [])));
+      } else {
+        const widths = words.map((word) => measureCached(word, blockStyle, ctx, blockFont));
+        forcedBreaks = chooseJustifiedBreaks(words, widths, containerWidth, !block.continues);
+        words.forEach((word, i) => {
+          if (i === 0) return;
+          let entry = justifiedBreaks.get(word);
+          if (!entry) justifiedBreaks.set(word, (entry = new Map()));
+          entry.set(key, forcedBreaks!.has(i));
+        });
+      }
+    }
 
     let wi = 0;
     while (wi < words.length) {
@@ -265,8 +358,9 @@ export function layoutBlocks(
           // Indent list items past their bullet on continuation lines
           if (isListItem && wi > 0 && segStart === 0) x += 18;
           while (wi < words.length) {
+            if (placedInSegment && forcedBreaks?.has(wi)) break;
             const word = words[wi];
-            const ww = measureCached(word, blockStyle, ctx);
+            const ww = measureCached(word, blockStyle, ctx, blockFont);
             const previous = wi > 0 ? words[wi - 1] : undefined;
             const gap = placedInSegment && (previous?.spaceAfter || word.spaceBefore) ? 6 : 0;
             // Keep source-attached fragments together, e.g. abbreviation + plural
@@ -278,7 +372,7 @@ export function layoutBlocks(
               !words[clusterEnd - 1].spaceAfter &&
               !words[clusterEnd].spaceBefore
             ) {
-              clusterWidth += measureCached(words[clusterEnd], blockStyle, ctx);
+              clusterWidth += measureCached(words[clusterEnd], blockStyle, ctx, blockFont);
               clusterEnd++;
             }
             const segmentWidth = segEnd - segStart;
@@ -344,6 +438,7 @@ export function layoutBlocks(
           wi++;
         }
       } while (retryLine);
+      lineLog?.push({ start: wiAtLineStart - (isListItem ? 1 : 0), bottom: y + lineHeight });
       if (blockStyle.textAlign === 'justify' && block.type !== 'heading') {
         // The paragraph's final line stays left aligned, unless the paragraph
         // continues in the next column.

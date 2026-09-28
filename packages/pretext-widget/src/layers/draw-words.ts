@@ -9,7 +9,9 @@ export interface DrawOptions {
   isDark: boolean;
   widthOf: (span: WordSpan) => number;
   /** Motion for a word, or null when no effect is running at all. */
-  motionAt: ((index: number, cx: number, cy: number) => WordMotion | null) | null;
+  motionAt: ((index: number, cx: number, cy: number, span: WordSpan) => WordMotion | null) | null;
+  /** Colour of the load wave's tint. */
+  accent?: string;
 }
 
 type DrawingContext = Pick<
@@ -20,7 +22,7 @@ type DrawingContext = Pick<
 /** Draw canvas words, displacing those an effect moves. The plain transform is
  * restored right after each moved word, so later words are never affected. */
 export function drawWords(ctx: DrawingContext, spans: WordSpan[], options: DrawOptions) {
-  const { canvasTop, yMin, yMax, dpr, isDark, widthOf, motionAt } = options;
+  const { canvasTop, yMin, yMax, dpr, isDark, widthOf, motionAt, accent } = options;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   for (let index = 0; index < spans.length; index++) {
     const s = spans[index];
@@ -39,7 +41,7 @@ export function drawWords(ctx: DrawingContext, spans: WordSpan[], options: DrawO
     const halfWidth = widthOf(s) / 2;
     const cx = s.x + halfWidth;
     const cy = s.y + s.style.lineHeight / 2;
-    const motion = motionAt(index, cx, cy);
+    const motion = motionAt(index, cx, cy, s);
     if (!motion) {
       ctx.fillText(s.text, s.x, baseline);
       continue;
@@ -50,6 +52,15 @@ export function drawWords(ctx: DrawingContext, spans: WordSpan[], options: DrawO
     const sin = Math.sin(motion.rotation) * dpr * motion.scale;
     ctx.setTransform(cos, sin, -sin, cos, (cx + motion.dx) * dpr, (centreY + motion.dy) * dpr);
     ctx.fillText(s.text, -halfWidth, baseline - centreY);
+    if (motion.highlight && accent) {
+      // The wave tints the word by drawing it again in the accent colour.
+      const color = ctx.fillStyle;
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = motion.highlight;
+      ctx.fillText(s.text, -halfWidth, baseline - centreY);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }

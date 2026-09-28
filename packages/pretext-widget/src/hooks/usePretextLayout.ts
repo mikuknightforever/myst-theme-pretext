@@ -2,7 +2,7 @@ import * as React from 'react';
 import type { ColumnCount, ColumnLayoutOptions } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT } from '../config.js';
 import {
-  buildInitialFigurePositions,
+  buildInitialFigureLayout,
   figureHeightForWidth,
   layoutWithFigures,
 } from '../figure-layout.js';
@@ -124,7 +124,7 @@ export function usePretextLayout({
     if (typeof document === 'undefined' || containerWidth <= 0) {
       return { layout: EMPTY_LAYOUT, positions: null };
     }
-    const initial = buildInitialFigurePositions(
+    const { positions: initial, layout: opening } = buildInitialFigureLayout(
       measuredBlocks,
       figures,
       containerWidth,
@@ -138,7 +138,14 @@ export function usePretextLayout({
         ? manualPositions[index]
         : position,
     );
-    return layoutWithFigures(measuredBlocks, candidates, containerWidth, textStyle, columnOptions);
+    return layoutWithFigures(
+      measuredBlocks,
+      candidates,
+      containerWidth,
+      textStyle,
+      columnOptions,
+      opening,
+    );
   }, [
     measuredBlocks,
     figures,

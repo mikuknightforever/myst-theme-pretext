@@ -12,26 +12,23 @@ export function emptyLayout(startY: number): LayoutResult {
   };
 }
 
+/** Move `source` (a freshly computed partial layout that is not used again) into
+ * `target`, shifted by `xOffset`. Items are shifted in place instead of copied:
+ * copying every word object per column and band dominated multi-column layout. */
 export function appendLayout(target: LayoutResult, source: LayoutResult, xOffset = 0) {
-  target.spans.push(
-    ...source.spans.map((span) => ({
-      ...span,
-      x: span.x + xOffset,
-    })),
-  );
-  target.richBlocks.push(
-    ...source.richBlocks.map((block) => ({
-      ...block,
-      x: block.x + xOffset,
-    })),
-  );
-  target.figureAnchors.push(
-    ...source.figureAnchors.map((anchor) => ({
-      ...anchor,
-      x: anchor.x + xOffset,
-    })),
-  );
-  target.headingAnchors.push(...source.headingAnchors);
+  for (const span of source.spans) {
+    if (xOffset) span.x += xOffset;
+    target.spans.push(span);
+  }
+  for (const block of source.richBlocks) {
+    if (xOffset) block.x += xOffset;
+    target.richBlocks.push(block);
+  }
+  for (const anchor of source.figureAnchors) {
+    if (xOffset) anchor.x += xOffset;
+    target.figureAnchors.push(anchor);
+  }
+  for (const heading of source.headingAnchors) target.headingAnchors.push(heading);
   target.contentBottom = Math.max(target.contentBottom, source.contentBottom);
 }
 
@@ -179,6 +176,9 @@ export function sliceTextBlock(
   };
 }
 
+/** How many words of `block` fit between `startY` and `maxBottom` in `frame`.
+ * The block is laid out once and its lines are taken while they fit, instead
+ * of re-laying out word prefixes in a binary search. */
 export function findFittingWordCount(
   block: ColumnTextBlock,
   obstacles: ObstacleRect[],
@@ -188,22 +188,22 @@ export function findFittingWordCount(
   style: TextStyle,
   keepBullet: boolean,
 ): number {
-  let low = 1;
-  let high = block.words.length;
-  let best = 0;
-  const localObstacles = obstaclesForColumn(obstacles, frame);
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const candidate = sliceTextBlock(block, 0, mid, keepBullet);
-    const placed = layoutBlocks([candidate], localObstacles, frame.width, startY, style);
-    if (placed.contentBottom <= maxBottom) {
-      best = mid;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
+  const lines: Array<{ start: number; bottom: number }> = [];
+  const whole = sliceTextBlock(block, 0, block.words.length, keepBullet);
+  layoutBlocks(
+    [whole],
+    obstaclesForColumn(obstacles, frame),
+    frame.width,
+    startY,
+    style,
+    undefined,
+    0,
+    lines,
+  );
+  let fitting = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].bottom > maxBottom) break;
+    fitting = i + 1 < lines.length ? Math.max(0, lines[i + 1].start) : block.words.length;
   }
-
-  return best;
+  return fitting;
 }

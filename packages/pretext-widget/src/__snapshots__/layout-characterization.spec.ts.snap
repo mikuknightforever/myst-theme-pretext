@@ -4,10 +4,10 @@ exports[`pre-refactor geometry contract > preserves complete geometry for 1 colu
 
 exports[`pre-refactor geometry contract > preserves complete geometry for 1 columns and font sizes > font-20 1`] = `"6a55c1b701ce8a35ceabb86244212e321e9dac967430783243a8c8d6fa642f59"`;
 
-exports[`pre-refactor geometry contract > preserves complete geometry for 2 columns and font sizes > font-16 1`] = `"f404c0f029002b5583dd29bd2dcf23f98c4d13c951335cd629dae078e98e8ddf"`;
+exports[`pre-refactor geometry contract > preserves complete geometry for 2 columns and font sizes > font-16 1`] = `"9686226ec383b061aafcdadb6afa5e27c6a1236a8af4fd9265d50dca2fd67b02"`;
 
-exports[`pre-refactor geometry contract > preserves complete geometry for 2 columns and font sizes > font-20 1`] = `"2bbfcf0ef1cae28bf3032d2be43d63533c2043d2c7dc26ef70e9638d6e880e1b"`;
+exports[`pre-refactor geometry contract > preserves complete geometry for 2 columns and font sizes > font-20 1`] = `"2473425e8f05d32b3b487f9c87a8323289939d48781b13517f914e968d45bd3e"`;
 
-exports[`pre-refactor geometry contract > preserves complete geometry for 3 columns and font sizes > font-16 1`] = `"82c0e25eed550e7cd8acec6060910d6039523ee5ec77023c248a010468af680a"`;
+exports[`pre-refactor geometry contract > preserves complete geometry for 3 columns and font sizes > font-16 1`] = `"62c8b15c58759a5589f1d6b2b3f641ab0fd97bd929d158ae7098922c189632cf"`;
 
 exports[`pre-refactor geometry contract > preserves complete geometry for 3 columns and font sizes > font-20 1`] = `"52cb379e6aa624be50492ce041aaa2cf2c437b4baa5d3b05b35c0a6ff4c47d21"`;

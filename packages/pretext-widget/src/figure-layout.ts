@@ -15,7 +15,7 @@ import {
   PRETEXT_TEXT_STYLE,
 } from './config.js';
 import { getOpeningLayout } from './layout-cache.js';
-import type { ContentBlock, ObstacleRect, TextStyle } from './layout.js';
+import type { ContentBlock, LayoutResult, ObstacleRect, TextStyle } from './layout.js';
 import type { FigureInfo, FigurePosition } from './model.js';
 import { figureParts } from './content-detection.js';
 
@@ -133,7 +133,8 @@ export function toObstacleRects(
   });
 }
 
-export function buildInitialFigurePositions(
+/** Initial (inline) figure positions, and the layout pass they were found with. */
+export function buildInitialFigureLayout(
   blocks: ContentBlock[],
   figures: FigureInfo[],
   containerWidth: number,
@@ -141,7 +142,7 @@ export function buildInitialFigurePositions(
   columnOptions: ColumnLayoutOptions,
   textStyle: TextStyle = PRETEXT_TEXT_STYLE,
   captionHeights: Record<number, number> = {},
-): FigurePosition[] {
+): { positions: FigurePosition[]; layout: LayoutResult } {
   const frames = getColumnFrames(containerWidth, columnOptions);
   const figureContainerWidth = frames[0]?.width ?? containerWidth;
   const sizes = figures.map((fig, index) =>
@@ -157,14 +158,15 @@ export function buildInitialFigurePositions(
   }));
   const dimensionKey = sizes.map((size) => `${size.width}x${size.height}`).join(';');
   const textStyleKey = JSON.stringify(textStyle);
-  const anchors = getOpeningLayout(
+  const opening = getOpeningLayout(
     blocks,
     `native-flow:${containerWidth}:${columnOptions.count}:${columnOptions.gap}:${columnOptions.columnHeight}:${columnOptions.bandGap}:${textStyleKey}:${dimensionKey}`,
     () =>
       layoutBlocksInColumns(blocks, sizingObstacles, containerWidth, 0, textStyle, columnOptions),
-  ).figureAnchors;
+  );
+  const anchors = opening.figureAnchors;
   const anchorsByFigure = new Map(anchors.map((anchor) => [anchor.figureIndex, anchor]));
-  return figures.map((_, i) => {
+  const positions = figures.map((_, i) => {
     const anchor = anchorsByFigure.get(i);
     const anchorLeft = anchor?.x ?? 0;
     const anchorWidth = anchor?.width ?? containerWidth;
@@ -176,6 +178,27 @@ export function buildInitialFigurePositions(
       inline: true,
     };
   });
+  return { positions, layout: opening };
+}
+
+export function buildInitialFigurePositions(
+  blocks: ContentBlock[],
+  figures: FigureInfo[],
+  containerWidth: number,
+  imageRatios: Record<number, number>,
+  columnOptions: ColumnLayoutOptions,
+  textStyle: TextStyle = PRETEXT_TEXT_STYLE,
+  captionHeights: Record<number, number> = {},
+): FigurePosition[] {
+  return buildInitialFigureLayout(
+    blocks,
+    figures,
+    containerWidth,
+    imageRatios,
+    columnOptions,
+    textStyle,
+    captionHeights,
+  ).positions;
 }
 
 /** Commit prose and anchored cards from the same layout pass. Inline card
@@ -186,15 +209,22 @@ export function layoutWithFigures(
   containerWidth: number,
   textStyle: TextStyle,
   options: ColumnLayoutOptions,
+  /** The opening pass from buildInitialFigureLayout. While no figure has been
+   * moved, it is identical to laying out again, so it is reused (half the work
+   * per settings change). */
+  opening?: LayoutResult,
 ) {
-  const layout = layoutBlocksInColumns(
-    blocks,
-    toObstacleRects(positions, containerWidth),
-    containerWidth,
-    0,
-    textStyle,
-    options,
-  );
+  const layout =
+    opening && positions.every((position) => position.inline)
+      ? opening
+      : layoutBlocksInColumns(
+          blocks,
+          toObstacleRects(positions, containerWidth),
+          containerWidth,
+          0,
+          textStyle,
+          options,
+        );
   const anchors = new Map(layout.figureAnchors.map((anchor) => [anchor.figureIndex, anchor]));
   return {
     layout,

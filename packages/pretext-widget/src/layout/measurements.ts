@@ -1,4 +1,3 @@
-import { LruCache } from '../lru-cache.js';
 import type { StyledWord, TextStyle, ContentBlock } from './types.js';
 
 const CODE_FONT = 'ui-monospace, "Courier New", Courier, monospace';
@@ -22,24 +21,43 @@ function measureWord(word: StyledWord, style: TextStyle, ctx: CanvasRenderingCon
   return ctx.measureText(word.text).width;
 }
 
-/** Shared across layout passes and article sessions; LRU bounds retained word/font keys. */
-const _widthCache = new LruCache<number>(10_000);
+/** Widths are kept with each word, per font (pretext's "prepare once"): later
+ * layout passes are arithmetic over these numbers, with no key building or cache
+ * bookkeeping per word. A word usually has one or two fonts (body, heading). */
+const wordWidths = new WeakMap<StyledWord, Array<{ font: string; width: number }>>();
+
+const fontKeys = new WeakMap<TextStyle, string>();
+/** Identifies a style's font; built once per style object, not once per word. */
+export function fontKeyOf(style: TextStyle): string {
+  let key = fontKeys.get(style);
+  if (key === undefined) {
+    key = `${style.fontFamily}|${style.fontSize}|${style.fontWeight}`;
+    fontKeys.set(style, key);
+  }
+  return key;
+}
 
 export function measureCached(
   word: StyledWord,
   style: TextStyle,
   ctx: CanvasRenderingContext2D,
+  font: string = fontKeyOf(style),
 ): number {
   if (word.measuredWidth != null && Number.isFinite(word.measuredWidth)) {
     return word.measuredWidth;
   }
-  const k = `${style.fontFamily}|${style.fontSize}|${word.bold ? '700' : style.fontWeight}|${word.italic ? 1 : 0}|${word.code ? 1 : 0}|${word.math ? 1 : 0}|${word.text}`;
-  let v = _widthCache.get(k);
-  if (v === undefined) {
-    v = measureWord(word, style, ctx);
-    _widthCache.set(k, v);
+  let entries = wordWidths.get(word);
+  if (entries) {
+    for (let i = 0; i < entries.length; i++) if (entries[i].font === font) return entries[i].width;
+  } else {
+    entries = [];
+    wordWidths.set(word, entries);
   }
-  return v;
+  const width = measureWord(word, style, ctx);
+  // Keep the few most recent fonts (e.g. while dragging the font-size slider).
+  if (entries.length >= 4) entries.shift();
+  entries.push({ font, width });
+  return width;
 }
 
 export function inlineMeasurementKey(
@@ -50,7 +68,8 @@ export function inlineMeasurementKey(
     style.fontFamily,
     style.fontSize,
     style.fontWeight,
-    style.lineHeight,
+    // Line height is left out on purpose: tokens are measured at their natural
+    // height and layout takes the larger of that and the line height.
     word.bold,
     word.italic,
     word.code,

@@ -61,10 +61,12 @@ In Pretext mode a translucent toolbar floats at the bottom:
 
 - **Columns**: an icon that opens 1 to 4 columns (a count is disabled when the width
   cannot fit it).
-- **Justify**: toggles justified text. Lines are stretched to their column or to the
-  space beside a figure by widening word gaps; last lines of paragraphs stay left
-  aligned, as do lines whose gaps would exceed about 2.5 spaces. Line breaks are the
-  same in both modes.
+- **Justify**: toggles justified text. Justified paragraphs choose their line
+  breaks for the whole paragraph (minimum raggedness, the idea behind Knuth–Plass)
+  instead of filling lines greedily, then stretch every line but the last to its
+  column. A paragraph split across columns keeps the breaks chosen for the whole
+  paragraph. Only lines whose gaps would exceed about 5 spaces stay left aligned.
+  Paragraphs beside a moved figure use greedy breaks.
 - **Aa**: font size, line height, paragraph spacing and reading width.
 - **Text effects**, after learn-pretext.com: none (–), Scatter (words flee a fast
   cursor), Magnify (words near the cursor grow up to 1.7×), and Explode (click the
@@ -73,8 +75,17 @@ In Pretext mode a translucent toolbar floats at the bottom:
   system asks for reduced motion.
 - **On this page** (wide screens), theme, and Exit.
 
-Text fades in over 200 ms with an opacity transition that the browser's compositor
-runs, so it stays smooth while charts are still rendering.
+Text appears as soon as it is laid out. Once the page has gone quiet (charts
+rendered), one wave sweeps diagonally through the visible text, lifting and tinting
+each word briefly. Changing the column count moves every word from where it was on
+screen to its new place over 450 ms. Both are skipped for reduced motion.
+
+Layout follows pretext's pipeline: each word's width is measured once per font and
+kept with the word; columns are filled by laying a paragraph out once and taking
+its lines while they fit; partial layouts are combined without copying; and while
+no figure has been moved, the figure-placement pass is reused as the final layout.
+Citations, links and math are measured in the DOM once per font size, never for
+line-height or spacing changes.
 
 ## Theme integration
 

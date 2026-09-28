@@ -114,6 +114,9 @@ export const InlineMeasurementLayer = React.memo(function InlineMeasurementLayer
           key={key}
           style={{
             ...inlineStyle(word, style),
+            // Natural height, independent of the line-height setting (see
+            // inlineMeasurementKey); layout uses the larger of the two.
+            lineHeight: 'normal',
             position: 'absolute',
             display: 'inline-block',
             width: 'max-content',
@@ -153,7 +156,9 @@ export function MathCodeLayer({
         spans,
         engine.bursts,
         0,
-        engine.anyMotion ? (cx, cy, index) => engine.motion(index, cx, cy) : () => null,
+        engine.anyMotion
+          ? (cx, cy, index) => engine.motion(index, cx, cy, spans[index])
+          : () => null,
       );
     };
     apply();

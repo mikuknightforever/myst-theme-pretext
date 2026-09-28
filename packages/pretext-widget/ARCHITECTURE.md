@@ -35,6 +35,13 @@ The React package's public entry remains `index.tsx`.
   results for 1/2/3 columns and two font sizes, captured before splitting modules.
   Do not update these snapshots simply to make a refactor pass. Explain and
   separately review any intended change in geometry.
+- Reviewed geometry change (2026-09): column fitting now lays a paragraph out
+  once and takes its lines while they fit, instead of binary-searching word
+  prefixes. Where a paragraph's last line fit but its trailing paragraph gap did
+  not, the old search moved one lone word into the next column; the paragraph now
+  stays whole. This was the only difference found (checked call by call against
+  the old search), and it changed three snapshots: 2 columns at 16 px and 20 px,
+  and 3 columns at 16 px.
 - `lru-cache.spec.ts` verifies eviction, recency, updates, invalid capacities and
   bounded size after 50,000 insertions. This is not a browser memory benchmark.
 - Theme startup tests live in `themes/article/tests` and are included in the
