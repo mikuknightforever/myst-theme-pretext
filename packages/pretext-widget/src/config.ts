@@ -8,8 +8,6 @@ export const FIGURE_INLINE_MAX_W = 820;
 export const FIGURE_FALLBACK_ASPECT_RATIO = 1012 / 1800;
 export const FIGURE_CAPTION_ESTIMATE_H = 62;
 export const FIGURE_BLOCK_WIDTH_RATIO = 0.6;
-/** Interactive cards are dragged by this strip so their output keeps its input. */
-export const INTERACTIVE_FIGURE_HEADER_H = 28;
 export const COLUMN_GAP = 32;
 export const COLUMN_MIN_WIDTH = 320;
 export const COLUMN_PAGE_HEIGHT = 980;

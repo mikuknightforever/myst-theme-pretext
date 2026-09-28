@@ -3,6 +3,7 @@ import type { ColumnCount, ColumnLayoutOptions } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT } from '../config.js';
 import {
   buildInitialFigureLayout,
+  captionMode,
   figureHeightForWidth,
   layoutWithFigures,
 } from '../figure-layout.js';
@@ -114,15 +115,30 @@ export function usePretextLayout({
         : null,
     [figures, imageRatios, captionHeights],
   );
+  // Captions a reader opened on cards too small to show them inline.
+  const [openCaptions, setOpenCaptions] = React.useState<ReadonlySet<number>>(() => new Set());
+  const toggleCaption = React.useCallback((index: number) => {
+    setOpenCaptions((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
   const manualPositions =
     figureLayout?.width === containerWidth &&
     figureLayout?.columns === columnCount &&
     figureLayout?.readingKey === readingKey
       ? figureLayout.positions
       : null;
-  const { layout, positions: figPositions } = React.useMemo(() => {
+  const {
+    layout,
+    positions: figPositions,
+    basePositions,
+    captionModes,
+  } = React.useMemo(() => {
     if (typeof document === 'undefined' || containerWidth <= 0) {
-      return { layout: EMPTY_LAYOUT, positions: null };
+      return { layout: EMPTY_LAYOUT, positions: null, basePositions: null, captionModes: [] };
     }
     const { positions: initial, layout: opening } = buildInitialFigureLayout(
       measuredBlocks,
@@ -138,15 +154,35 @@ export function usePretextLayout({
         ? manualPositions[index]
         : position,
     );
-    return layoutWithFigures(
+    const modes = candidates.map((position, index) =>
+      captionMode(position, captionHeights[index], openCaptions.has(index)),
+    );
+    // An opened caption adds its height below the figure; text flows around it.
+    const shown = candidates.map((position, index) =>
+      modes[index] === 'expanded'
+        ? { ...position, height: position.height + captionHeights[index] }
+        : position,
+    );
+    const result = layoutWithFigures(
       measuredBlocks,
-      candidates,
+      shown,
       containerWidth,
       textStyle,
       columnOptions,
       opening,
     );
+    return {
+      ...result,
+      // Dragging and resizing work on the card without its opened caption.
+      basePositions: result.positions.map((position, index) =>
+        modes[index] === 'expanded'
+          ? { ...position, height: position.height - captionHeights[index] }
+          : position,
+      ),
+      captionModes: modes,
+    };
   }, [
+    openCaptions,
     measuredBlocks,
     figures,
     containerWidth,
@@ -209,6 +245,9 @@ export function usePretextLayout({
     richBlocks,
     headingAnchors,
     figPositions,
+    basePositions,
+    captionModes,
+    toggleCaption,
     contentHeight,
     readingKey,
     textStyle,

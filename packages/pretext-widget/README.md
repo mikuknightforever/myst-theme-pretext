@@ -75,10 +75,18 @@ In Pretext mode a translucent toolbar floats at the bottom:
   system asks for reduced motion.
 - **On this page** (wide screens), theme, and Exit.
 
-Text appears as soon as it is laid out. Once the page has gone quiet (charts
-rendered), one wave sweeps diagonally through the visible text, lifting and tinting
-each word briefly. Changing the column count moves every word from where it was on
-screen to its new place over 450 ms. Both are skipped for reduced motion.
+Text appears as soon as it is laid out, and one translucent band sweeps diagonally
+across the view at the same moment. The sweep is a CSS transform animation, which
+the browser's compositor runs even while charts keep the main thread busy.
+Changing the column count moves every word from where it was on screen to its new
+place over 450 ms. Both are skipped for reduced motion.
+
+Figure cards show their frame and move/resize controls only on hover (always on
+touch screens). The caption identifies the figure; there is no extra label. When a
+resized card is too small for its caption (the figure would keep under 45% of the
+card, or under 60 px), the caption collapses into a "Caption" toggle; opening it
+keeps the card's width and adds the caption below. Moved figures keep the column
+groups and their dividers.
 
 Layout follows pretext's pipeline: each word's width is measured once per font and
 kept with the word; columns are filled by laying a paragraph out once and taking

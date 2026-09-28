@@ -118,6 +118,9 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     richBlocks,
     headingAnchors,
     figPositions,
+    basePositions,
+    captionModes,
+    toggleCaption,
     contentHeight,
     readingKey,
     textStyle,
@@ -129,37 +132,18 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
   const layoutReady = spans.length > 0 && containerWidth > 0;
-  // Text shows as soon as it is laid out; one wave sweeps through it once the
-  // page has gone quiet (charts rendered), so the wave itself never stutters.
-  const waveDone = React.useRef(false);
-  const lastLayoutChange = React.useRef(0);
+  // Load sweep: as soon as text is laid out, one translucent band sweeps
+  // diagonally across the view. It is a CSS transform animation, which the
+  // compositor runs even while charts keep the main thread busy.
+  const [sweep, setSweep] = React.useState<'pending' | 'running' | 'done'>(
+    reduceMotion ? 'done' : 'pending',
+  );
   React.useEffect(() => {
-    lastLayoutChange.current = performance.now();
-  }, [spans]);
-  React.useEffect(() => {
-    if (waveDone.current || reduceMotion || !layoutReady) return;
-    let frame = 0;
-    let last = performance.now();
-    const opened = last;
-    let quiet = 0;
-    const tick = (time: number) => {
-      quiet = time - last < 40 ? quiet + 1 : 0;
-      last = time;
-      const settled = quiet >= 4 && time - lastLayoutChange.current > 300;
-      if (settled || time - opened > 4000) {
-        waveDone.current = true;
-        engine.startWave(time);
-        ensureLoop();
-        return;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [engine, ensureLoop, layoutReady, reduceMotion]);
+    if (sweep === 'pending' && layoutReady) setSweep('running');
+  }, [sweep, layoutReady]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
-      figPositions,
+      figPositions: basePositions,
       setFigureLayout,
       containerWidth,
       columnCount,
@@ -242,8 +226,59 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           .pretext-figure-card figcaption {
             display: none;
           }
+          /* Card frame and move/resize controls appear gently on hover. */
+          .pretext-figure-card {
+            box-shadow: 0 0 0 1px transparent;
+            transition: box-shadow 150ms ease;
+          }
+          .pretext-figure-card:hover,
+          .pretext-figure-card[data-active] {
+            box-shadow: 0 0 0 1.5px rgba(37,99,235,0.45), 0 8px 24px rgba(15,23,42,0.12);
+          }
+          .pretext-card-chrome {
+            opacity: 0;
+            transition: opacity 150ms ease;
+          }
+          .pretext-figure-card:hover .pretext-card-chrome,
+          .pretext-figure-card[data-active] .pretext-card-chrome {
+            opacity: 1;
+          }
+          @media (hover: none) {
+            .pretext-card-chrome { opacity: 1; }
+          }
+          @keyframes pretext-sweep {
+            from { transform: translateX(-60%); }
+            to { transform: translateX(60%); }
+          }
         `}
       </style>
+      {sweep === 'running' && (
+        <div
+          aria-hidden="true"
+          className="pretext-load-sweep"
+          onAnimationEnd={() => setSweep('done')}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 90,
+            pointerEvents: 'none',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: '-20% -60%',
+              background: `linear-gradient(110deg, transparent 38%, ${
+                isDark ? 'rgba(34,211,238,0.22)' : 'rgba(99,102,241,0.18)'
+              } 50%, transparent 62%)`,
+              mixBlendMode: isDark ? 'screen' : 'multiply',
+              animation: 'pretext-sweep 1100ms cubic-bezier(0.4, 0, 0.2, 1) both',
+              willChange: 'transform',
+            }}
+          />
+        </div>
+      )}
       <PretextToolbar
         figureCount={figures.length}
         columnCount={columnCount}
@@ -379,6 +414,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   onResizePointerDown={startResize}
                   onCaptionHeightChange={updateCaptionHeight}
                   onNaturalRatioChange={updateOutputRatio}
+                  captionMode={captionModes[i]}
+                  onToggleCaption={toggleCaption}
                   isDark={isDark}
                 />
               ))}

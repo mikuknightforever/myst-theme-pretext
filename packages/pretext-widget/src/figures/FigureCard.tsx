@@ -2,7 +2,7 @@ import * as React from 'react';
 import { MyST } from 'myst-to-react';
 import type { FigureInfo, FigurePosition } from '../model.js';
 import { figureParts } from '../content-detection.js';
-import { FIGURE_INLINE_MAX_W, INTERACTIVE_FIGURE_HEADER_H } from '../config.js';
+import { FIGURE_INLINE_MAX_W } from '../config.js';
 
 /** Render an output at article width and scale it into the card. MyST output
  * wrappers cap themselves at their container's width, and charts such as Plotly
@@ -59,6 +59,23 @@ function ScaledOutput({
   );
 }
 
+export type CaptionMode = 'inline' | 'collapsed' | 'expanded';
+
+function Chevron({ up }: { up: boolean }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      <path
+        d={up ? 'M2 6.5 5 3.5 8 6.5' : 'M2 3.5 5 6.5 8 3.5'}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function FigureCard({
   fig,
   pos,
@@ -73,6 +90,8 @@ export function FigureCard({
   isDark,
   onCaptionHeightChange,
   onNaturalRatioChange,
+  captionMode = 'inline',
+  onToggleCaption,
 }: {
   fig: FigureInfo;
   pos: FigurePosition;
@@ -87,12 +106,16 @@ export function FigureCard({
   isDark: boolean;
   onCaptionHeightChange?: (index: number, height: number) => void;
   onNaturalRatioChange?: (index: number, ratio: number) => void;
+  /** Collapsed on cards too small for their caption; expanded adds it below. */
+  captionMode?: CaptionMode;
+  onToggleCaption?: (index: number) => void;
 }) {
   const active = isDragging || isResizing;
   const { body, captions } = figureParts(fig.mdastNode);
   const captionRef = React.useRef<HTMLDivElement>(null);
   const interactive = Boolean(fig.interactive);
   const [captionHeight, setCaptionHeight] = React.useState(0);
+  const collapsed = captionMode === 'collapsed';
   const reportNaturalRatio = React.useCallback(
     (ratio: number) => onNaturalRatioChange?.(index, ratio),
     [index, onNaturalRatioChange],
@@ -103,46 +126,45 @@ export function FigureCard({
     onPointerUp,
     onPointerCancel,
   };
-  const badge = (
-    <div
-      style={{
-        position: interactive ? 'static' : 'absolute',
-        top: 8,
-        left: 8,
-        padding: '2px 8px',
-        borderRadius: 999,
-        background: 'rgba(37,99,235,0.85)',
-        color: 'white',
-        fontSize: 11,
-        fontWeight: 700,
-        zIndex: 10,
-        pointerEvents: 'none',
-      }}
-    >
-      {fig.label}
-    </div>
-  );
+  // The caption is always rendered, hidden when collapsed, so its height is
+  // known for deciding when to collapse and how much an opened one adds.
   React.useLayoutEffect(() => {
     const element = captionRef.current;
     if (!element) return;
-    if (!onCaptionHeightChange || !pos.inline) {
-      setCaptionHeight(element.offsetHeight);
-      return;
-    }
     const report = () => {
       setCaptionHeight(element.offsetHeight);
-      onCaptionHeightChange(index, Math.ceil(element.offsetHeight) + 4);
+      onCaptionHeightChange?.(index, Math.ceil(element.offsetHeight) + 4);
     };
     report();
     const observer = new ResizeObserver(report);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [index, pos.inline, onCaptionHeightChange]);
+  }, [index, onCaptionHeightChange]);
+  const chip: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    height: 22,
+    padding: '0 8px',
+    border: 0,
+    borderRadius: 999,
+    background: isDark ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.88)',
+    color: isDark ? '#e2e8f0' : '#334155',
+    boxShadow: '0 1px 4px rgba(15,23,42,0.18)',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+  const toggle = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    onToggleCaption?.(index);
+  };
   return (
     <div
       className="pretext-figure-card"
       id={fig.mdastNode?.html_id ?? fig.mdastNode?.identifier}
       data-pretext-figure-index={index}
+      data-active={active ? '' : undefined}
       {...(interactive ? {} : dragHandlers)}
       style={{
         position: 'absolute',
@@ -155,47 +177,46 @@ export function FigureCard({
         touchAction: interactive ? 'auto' : 'none',
         userSelect: 'none',
         borderRadius: 16,
-        border: `2px solid ${active ? 'rgba(37,99,235,0.9)' : 'rgba(37,99,235,0.4)'}`,
         background: isDark ? '#1e293b' : '#f8fafc',
         color: isDark ? '#e5e7eb' : '#111827',
         boxSizing: 'border-box',
         overflow: 'hidden',
-        boxShadow: active ? '0 20px 50px rgba(37,99,235,0.25)' : '0 4px 16px rgba(0,0,0,0.08)',
-        transition: active ? 'none' : 'box-shadow 120ms ease',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {interactive ? (
+      {interactive && (
         <div
           data-pretext-drag-handle=""
-          aria-label={`Drag ${fig.label}`}
+          className="pretext-card-chrome"
+          aria-label={`Move ${fig.label}`}
+          title="Drag to move"
           {...dragHandlers}
           style={{
-            flexShrink: 0,
-            height: INTERACTIVE_FIGURE_HEADER_H,
-            boxSizing: 'border-box',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '0 8px',
+            position: 'absolute',
+            top: 6,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 30,
+            width: 44,
+            height: 18,
+            borderRadius: 999,
+            display: 'grid',
+            placeItems: 'center',
             cursor: isDragging ? 'grabbing' : 'grab',
             touchAction: 'none',
-            borderBottom: '1px solid rgba(148,163,184,0.25)',
-            background: isDark ? 'rgba(37,99,235,0.12)' : 'rgba(37,99,235,0.06)',
+            background: isDark ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.9)',
+            boxShadow: '0 1px 4px rgba(15,23,42,0.2)',
           }}
         >
-          {badge}
-          <svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true">
+          <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
             {[2, 8, 14].map((cx) =>
-              [2, 8].map((cy) => (
-                <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.5" fill="rgba(37,99,235,0.7)" />
+              [2, 6].map((cy) => (
+                <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.3" fill="rgba(37,99,235,0.75)" />
               )),
             )}
           </svg>
         </div>
-      ) : (
-        badge
       )}
 
       <div
@@ -222,52 +243,84 @@ export function FigureCard({
             // and compute controls (e.g. the power button) around the output. The
             // card root already carries the figure's id, so the copy drops it.
             body={[{ ...fig.mdastNode, html_id: undefined, identifier: undefined, children: body }]}
-            width={Math.max(1, pos.width - 4)}
-            height={Math.max(1, pos.height - 4 - INTERACTIVE_FIGURE_HEADER_H - captionHeight)}
+            width={Math.max(1, pos.width)}
+            height={Math.max(1, pos.height - (collapsed ? 0 : captionHeight))}
             onNaturalSize={reportNaturalRatio}
           />
         ) : (
           <MyST ast={body} />
         )}
       </div>
-      {(() => {
-        if (!captions.length) return null;
-        return (
-          <div
-            ref={captionRef}
-            className="pretext-figure-caption"
-            style={{
-              flexShrink: 0,
-              padding: '6px 10px 8px',
-              fontSize: 11,
-              lineHeight: 1.4,
-              color: isDark ? '#cbd5e1' : '#475569',
-              borderTop: '1px solid rgba(148,163,184,0.25)',
-              pointerEvents: 'auto',
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            {captions.map((caption, i) => (
-              <MyST key={caption.key ?? i} ast={caption.children} />
-            ))}
-          </div>
-        );
-      })()}
+      {captions.length > 0 && (
+        <div
+          ref={captionRef}
+          className="pretext-figure-caption"
+          aria-hidden={collapsed ? true : undefined}
+          style={{
+            flexShrink: 0,
+            padding: '6px 10px 8px',
+            fontSize: 11,
+            lineHeight: 1.4,
+            color: isDark ? '#cbd5e1' : '#475569',
+            borderTop: '1px solid rgba(148,163,184,0.25)',
+            pointerEvents: 'auto',
+            position: 'relative',
+            ...(captionMode === 'expanded' && { paddingRight: 40 }),
+            ...(collapsed && {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              visibility: 'hidden',
+            }),
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {captions.map((caption, i) => (
+            <MyST key={caption.key ?? i} ast={caption.children} />
+          ))}
+          {captionMode === 'expanded' && (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Hide caption"
+              title="Hide caption"
+              // Top right of the caption: the resize handle owns the bottom corner.
+              style={{ ...chip, position: 'absolute', top: 4, right: 6, height: 20, zIndex: 31 }}
+            >
+              <Chevron up />
+            </button>
+          )}
+        </div>
+      )}
+      {collapsed && (
+        <button
+          type="button"
+          onClick={toggle}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-label="Show caption"
+          title="Show caption"
+          style={{ ...chip, position: 'absolute', left: 8, bottom: 8, zIndex: 31 }}
+        >
+          Caption <Chevron up={false} />
+        </button>
+      )}
 
       <div
+        className="pretext-card-chrome"
+        title="Drag to resize"
         style={{
           position: 'absolute',
           bottom: 0,
           right: 0,
-          width: 28,
-          height: 28,
+          width: 24,
+          height: 24,
           cursor: 'nwse-resize',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           borderTopLeftRadius: 8,
-          background: isResizing ? 'rgba(37,99,235,0.35)' : 'rgba(37,99,235,0.18)',
-          zIndex: 30,
+          zIndex: 32,
         }}
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -278,23 +331,23 @@ export function FigureCard({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="rgba(37,99,235,0.85)">
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
           <line
-            x1="4"
-            y1="13"
-            x2="13"
-            y2="4"
-            stroke="rgba(37,99,235,0.85)"
-            strokeWidth="2"
+            x1="3"
+            y1="11"
+            x2="11"
+            y2="3"
+            stroke="rgba(37,99,235,0.8)"
+            strokeWidth="1.6"
             strokeLinecap="round"
           />
           <line
-            x1="8"
-            y1="13"
-            x2="13"
-            y2="8"
-            stroke="rgba(37,99,235,0.85)"
-            strokeWidth="2"
+            x1="7"
+            y1="11"
+            x2="11"
+            y2="7"
+            stroke="rgba(37,99,235,0.8)"
+            strokeWidth="1.6"
             strokeLinecap="round"
           />
         </svg>

@@ -17,10 +17,12 @@ export function layoutBlocksInColumns(
   style: TextStyle,
   options: ColumnLayoutOptions,
 ): LayoutResult {
-  if (options.count <= 1 || obstacles.some((obstacle) => !obstacle.inline)) {
-    // Absolute, manually dragged cards retain their obstacle-aware flow.
+  if (options.count <= 1) {
     return layoutColumnPass(blocks, obstacles, containerWidth, startY, style, options);
   }
+  // Manually moved cards stay in the same column groups: each placed block
+  // flows around them (layoutBlocks), so dragging a figure no longer turns the
+  // article into full-length columns without group dividers.
   const frames = getColumnFrames(containerWidth, options);
   const localObstacles = obstaclesForColumn(obstacles, frames[0]);
   const measurements = new WeakMap<ContentBlock, { height: number; lines: number }>();

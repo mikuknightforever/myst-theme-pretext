@@ -154,3 +154,31 @@ describe('fitting a paragraph into the rest of a column', () => {
     );
   });
 });
+
+describe('columns with a manually moved figure', () => {
+  test('keep their column groups, and text flows around the figure', () => {
+    const groupStyle = { ...DEFAULT_TEXT_STYLE, lineHeight: 20, paragraphGap: 12 };
+    const manyWords = Array.from({ length: 900 }, (_, i) => ({
+      text: `w${i}`,
+      bold: false,
+      italic: false,
+      code: false,
+      spaceAfter: true,
+    }));
+    const moved = { left: 60, top: 100, right: 260, bottom: 300, figureIndex: 0, inline: false };
+    const result = layoutBlocksInColumns(
+      [{ type: 'paragraph', words: manyWords }],
+      [moved],
+      1000,
+      0,
+      groupStyle,
+      { count: 2, gap: 32, columnHeight: 600, bandGap: 24 },
+    );
+    expect(result.columnBands?.length ?? 0).toBeGreaterThan(1);
+    for (const span of result.spans) {
+      const overlapsX = span.x < moved.right && span.x + 8 * span.text.length > moved.left;
+      const overlapsY = span.y < moved.bottom && span.y + groupStyle.lineHeight > moved.top;
+      expect(overlapsX && overlapsY).toBe(false);
+    }
+  });
+});

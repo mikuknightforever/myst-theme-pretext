@@ -11,7 +11,6 @@ import {
   FIGURE_MIN_H,
   FIGURE_MIN_W,
   FIGURE_WIDTH_DEFAULT,
-  INTERACTIVE_FIGURE_HEADER_H,
   PRETEXT_TEXT_STYLE,
 } from './config.js';
 import { getOpeningLayout } from './layout-cache.js';
@@ -53,6 +52,27 @@ function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): num
   return FIGURE_FALLBACK_ASPECT_RATIO;
 }
 
+/** Smallest share of a card, and height, the figure itself keeps before its
+ * caption collapses into a toggle. */
+const CAPTION_MIN_FIGURE_SHARE = 0.45;
+const CAPTION_MIN_FIGURE_H = 60;
+
+/** How a card shows its caption. Cards in their article place are sized to fit
+ * it. A card resized too small collapses it so the figure keeps the space;
+ * opening it adds the caption below, keeping the card's width. */
+export function captionMode(
+  position: FigurePosition,
+  captionHeight: number | undefined,
+  expanded: boolean,
+): 'inline' | 'collapsed' | 'expanded' {
+  if (position.inline || !captionHeight) return 'inline';
+  const room = position.height - captionHeight;
+  if (room >= Math.max(CAPTION_MIN_FIGURE_H, position.height * CAPTION_MIN_FIGURE_SHARE)) {
+    return 'inline';
+  }
+  return expanded ? 'expanded' : 'collapsed';
+}
+
 /** Interactive cards keep the output's measured aspect ratio, so their height
  * is always derived from their width (also while being resized). */
 export function figureHeightForWidth(
@@ -66,9 +86,7 @@ export function figureHeightForWidth(
       ? loadedRatio
       : FIGURE_FALLBACK_ASPECT_RATIO;
   const hasCaption = figureParts(fig.mdastNode).captions.length > 0;
-  const chrome =
-    (fig.interactive ? INTERACTIVE_FIGURE_HEADER_H : 0) +
-    (hasCaption ? (captionHeight ?? FIGURE_CAPTION_ESTIMATE_H) : 18);
+  const chrome = hasCaption ? (captionHeight ?? FIGURE_CAPTION_ESTIMATE_H) : 18;
   return Math.round(Math.max(FIGURE_MIN_H, Math.round(width * ratio) + chrome));
 }
 

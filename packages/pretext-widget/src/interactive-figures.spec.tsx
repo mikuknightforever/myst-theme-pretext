@@ -4,7 +4,6 @@ import { describe, expect, test, vi } from 'vitest';
 import { collectArticle } from './layout.js';
 import { isInteractiveOutputFigure, isStaticFigure } from './content-detection.js';
 import { figureHeightForWidth, getFigureDisplaySize } from './figure-layout.js';
-import { INTERACTIVE_FIGURE_HEADER_H } from './config.js';
 
 const rendered = vi.hoisted(() => ({ asts: [] as any[] }));
 vi.mock('myst-to-react', () => ({
@@ -86,7 +85,7 @@ describe('interactive notebook-output figures', () => {
     expect(result.figures[0].interactive).toBeFalsy();
   });
 
-  test('card height follows width through the measured output ratio plus the drag header', () => {
+  test('card height follows width through the measured output ratio plus the caption', () => {
     const fig = {
       label: 'Figure 4',
       imageUrl: null,
@@ -96,10 +95,8 @@ describe('interactive notebook-output figures', () => {
     const ratio = 360 / 760;
     const size = getFigureDisplaySize(fig, 480, ratio, 50);
     expect(size.width).toBe(480);
-    expect(size.height).toBe(Math.round(480 * ratio) + INTERACTIVE_FIGURE_HEADER_H + 50);
-    expect(figureHeightForWidth(fig, 240, ratio, 50)).toBe(
-      Math.round(240 * ratio) + INTERACTIVE_FIGURE_HEADER_H + 50,
-    );
+    expect(size.height).toBe(Math.round(480 * ratio) + 50);
+    expect(figureHeightForWidth(fig, 240, ratio, 50)).toBe(Math.round(240 * ratio) + 50);
   });
 
   test('renders the figure container without its caption, so MyST adds the notebook bar', () => {

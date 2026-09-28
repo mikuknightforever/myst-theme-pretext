@@ -20,8 +20,6 @@ export interface WordMotion {
   /** Radians. */
   rotation: number;
   scale: number;
-  /** 0 to 1: how strongly the load wave tints this word right now. */
-  highlight?: number;
 }
 
 /** A laid-out word, as the transitions need it. */
@@ -32,10 +30,6 @@ export interface PlacedWord {
 }
 
 export const TRANSITION_MS = 450;
-export const WAVE_MS = 1300;
-const WAVE_SPEED = 1.7; // px per ms along the diagonal front
-const WAVE_WIDTH_MS = 380; // how long the wave takes to pass one word
-const WAVE_LIFT = 5;
 
 function easeOutCubic(p: number): number {
   return 1 - (1 - p) ** 3;
@@ -59,7 +53,6 @@ export class EffectsEngine {
   private viewTop = 0;
   private viewHeight = 800;
   private transition: { start: number; viewTop: number; from: PlacedWord[] } | null = null;
-  private wave: { start: number } | null = null;
 
   /** Current scroll position (layout coordinates) and height of the view. */
   setView(top: number, height: number) {
@@ -75,11 +68,6 @@ export class EffectsEngine {
       viewTop: this.viewTop,
       from: words.map(({ text, x, y }) => ({ text, x, y })),
     };
-  }
-
-  /** One diagonal wave through the text that is already on screen. */
-  startWave(now: number) {
-    this.wave = { start: now };
   }
 
   pointer(x: number, y: number) {
@@ -112,8 +100,7 @@ export class EffectsEngine {
       (hover && this.cursor != null) ||
       this.words.size > 0 ||
       this.bursts.some((burst) => isBurstActive(burst, now)) ||
-      (this.transition != null && now - this.transition.start < TRANSITION_MS) ||
-      (this.wave != null && now - this.wave.start < WAVE_MS)
+      (this.transition != null && now - this.transition.start < TRANSITION_MS)
     );
   }
 
@@ -122,7 +109,6 @@ export class EffectsEngine {
     this.now = now;
     this.bursts = this.bursts.filter((burst) => isBurstActive(burst, now));
     if (this.transition && now - this.transition.start >= TRANSITION_MS) this.transition = null;
-    if (this.wave && now - this.wave.start >= WAVE_MS) this.wave = null;
     if (this.cursor && this.lastCursor) {
       const moved = Math.hypot(
         this.cursor.x - this.lastCursor.x,
@@ -140,7 +126,6 @@ export class EffectsEngine {
     const burst = this.bursts.length ? combinedOffset(cx, cy, index, this.bursts, this.now) : null;
     let tx = 0;
     let ty = 0;
-    let highlight = 0;
     const from = word && this.transition?.from[index];
     if (word && from && from.text === word.text) {
       const p = (this.now - this.transition!.start) / TRANSITION_MS;
@@ -150,17 +135,6 @@ export class EffectsEngine {
         const remaining = 1 - easeOutCubic(Math.max(0, p));
         tx = (from.x - word.x) * remaining;
         ty = offsetY * remaining;
-      }
-    }
-    if (word && this.wave) {
-      const viewY = word.y - this.viewTop;
-      if (viewY > -50 && viewY < this.viewHeight + 50) {
-        const local =
-          this.now - this.wave.start - (word.x * 0.55 + Math.max(0, viewY)) / WAVE_SPEED;
-        if (local > 0 && local < WAVE_WIDTH_MS) {
-          highlight = Math.sin((Math.PI * local) / WAVE_WIDTH_MS);
-          ty -= WAVE_LIFT * highlight;
-        }
       }
     }
     const hover = this.mode === 'scatter' || this.mode === 'magnify' ? this.mode : null;
@@ -196,13 +170,12 @@ export class EffectsEngine {
         state = undefined;
       }
     }
-    if (!burst && !state && scale === 1 && tx === 0 && ty === 0 && highlight === 0) return null;
+    if (!burst && !state && scale === 1 && tx === 0 && ty === 0) return null;
     return {
       dx: (burst?.dx ?? 0) + (state?.spring.dx ?? 0) + tx,
       dy: (burst?.dy ?? 0) + (state?.spring.dy ?? 0) + ty,
       rotation: burst?.rotation ?? 0,
       scale,
-      ...(highlight > 0 && { highlight }),
     };
   }
 
@@ -212,8 +185,7 @@ export class EffectsEngine {
       this.bursts.length > 0 ||
       this.words.size > 0 ||
       this.cursor != null ||
-      this.transition != null ||
-      this.wave != null
+      this.transition != null
     );
   }
 }
