@@ -4,6 +4,8 @@ export interface FigureInfo {
   mdastNode: any;
   label: string;
   imageUrl: string | null;
+  /** A single notebook output: dragged by its header and scaled to fit. */
+  interactive?: boolean;
 }
 
 export interface FigurePosition {

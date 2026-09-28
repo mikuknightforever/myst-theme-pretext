@@ -11,6 +11,7 @@ import {
   FIGURE_MIN_H,
   FIGURE_MIN_W,
   FIGURE_WIDTH_DEFAULT,
+  INTERACTIVE_FIGURE_HEADER_H,
   PRETEXT_TEXT_STYLE,
 } from './config.js';
 import { getOpeningLayout } from './layout-cache.js';
@@ -52,6 +53,25 @@ function getFigureNaturalAspectRatio(fig: FigureInfo, loadedRatio?: number): num
   return FIGURE_FALLBACK_ASPECT_RATIO;
 }
 
+/** Interactive cards keep the output's measured aspect ratio, so their height
+ * is always derived from their width (also while being resized). */
+export function figureHeightForWidth(
+  fig: FigureInfo,
+  width: number,
+  loadedRatio?: number,
+  captionHeight?: number,
+): number {
+  const ratio =
+    loadedRatio && Number.isFinite(loadedRatio) && loadedRatio > 0
+      ? loadedRatio
+      : FIGURE_FALLBACK_ASPECT_RATIO;
+  const hasCaption = figureParts(fig.mdastNode).captions.length > 0;
+  const chrome =
+    (fig.interactive ? INTERACTIVE_FIGURE_HEADER_H : 0) +
+    (hasCaption ? (captionHeight ?? FIGURE_CAPTION_ESTIMATE_H) : 18);
+  return Math.round(Math.max(FIGURE_MIN_H, Math.round(width * ratio) + chrome));
+}
+
 export function getFigureDisplaySize(
   fig: FigureInfo,
   containerWidth: number,
@@ -59,6 +79,10 @@ export function getFigureDisplaySize(
   captionHeight?: number,
 ): { width: number; height: number } {
   const articleLikeWidth = Math.max(FIGURE_MIN_W, Math.min(containerWidth, FIGURE_INLINE_MAX_W));
+  if (fig.interactive) {
+    const width = Math.round(Math.min(containerWidth, articleLikeWidth));
+    return { width, height: figureHeightForWidth(fig, width, loadedRatio, captionHeight) };
+  }
   const imageNode = findFirstImageNode(fig.mdastNode);
   const declaredWidth =
     parseDimension(fig.mdastNode?.width, articleLikeWidth) ??

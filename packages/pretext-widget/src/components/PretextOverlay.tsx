@@ -56,6 +56,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     textStyle,
     setFigureLayout,
     updateCaptionHeight,
+    updateOutputRatio,
+    heightForWidth,
     updateRichBlockHeight,
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
@@ -66,6 +68,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
       containerWidth,
       columnCount,
       readingKey,
+      heightForWidth,
     });
   const { rememberReadingPosition, followLocalReference } = useReadingNavigation({
     headingAnchors,
@@ -118,12 +121,13 @@ export const PretextOverlay = React.memo(function PretextOverlay({
             max-width: 100% !important;
             margin: 0 !important;
           }
-          .pretext-figure-body > * {
+          /* Image-fitting rules; interactive outputs are scaled as a whole instead. */
+          .pretext-figure-body:not([data-pretext-interactive]) > * {
             width: 100%;
             max-width: 100%;
           }
-          .pretext-figure-body img,
-          .pretext-figure-body svg {
+          .pretext-figure-body:not([data-pretext-interactive]) img,
+          .pretext-figure-body:not([data-pretext-interactive]) svg {
             display: block;
             max-width: 100% !important;
             max-height: 100% !important;
@@ -236,6 +240,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   onPointerCancel={endDrag}
                   onResizePointerDown={startResize}
                   onCaptionHeightChange={updateCaptionHeight}
+                  onNaturalRatioChange={updateOutputRatio}
                   isDark={isDark}
                 />
               ))}

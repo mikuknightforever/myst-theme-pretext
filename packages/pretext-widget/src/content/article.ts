@@ -2,6 +2,7 @@ import {
   canExtractInline,
   childrenOf,
   figureLabel,
+  isInteractiveOutputFigure,
   isSimpleList,
   isStaticFigure,
 } from '../content-detection.js';
@@ -51,6 +52,16 @@ export function collectArticle(
     if (isStaticFigure(node, options.draggableSelector)) {
       results.push({ type: 'figureAnchor', figureIndex: figures.length });
       figures.push({ mdastNode: node, label: figureLabel(node), imageUrl: findImageUrl(node) });
+      return;
+    }
+    if (isInteractiveOutputFigure(node)) {
+      results.push({ type: 'figureAnchor', figureIndex: figures.length });
+      figures.push({
+        mdastNode: node,
+        label: figureLabel(node),
+        imageUrl: null,
+        interactive: true,
+      });
       return;
     }
     if (node.type === 'paragraph') {

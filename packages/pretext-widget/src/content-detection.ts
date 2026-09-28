@@ -88,6 +88,20 @@ export function isStaticFigure(node: any, selector = 'pretext-draggable'): boole
   return count === 1;
 }
 
+/** A figure holding exactly one notebook output (e.g. a Plotly chart), either
+ * directly or inside the newer `outputs` wrapper. Its card is dragged by a
+ * header strip, so the output itself keeps hover, zoom and pan. */
+export function isInteractiveOutputFigure(node: any): boolean {
+  if (node?.type !== 'container' || node.kind !== 'figure') return false;
+  const { body, captions } = figureParts(node);
+  if (captions.some((caption) => containsInteractiveContent(caption))) return false;
+  if (body.length !== 1) return false;
+  const [part] = body;
+  if (part.type === 'output') return true;
+  const outputs = childrenOf(part);
+  return part.type === 'outputs' && outputs.length === 1 && outputs[0].type === 'output';
+}
+
 const STATIC_CAPTION_TYPES = new Set([
   'caption',
   'legend',

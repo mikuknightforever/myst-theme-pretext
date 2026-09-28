@@ -1,7 +1,11 @@
 import * as React from 'react';
 import type { ColumnCount, ColumnLayoutOptions } from '../column-layout.js';
 import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT } from '../config.js';
-import { buildInitialFigurePositions, layoutWithFigures } from '../figure-layout.js';
+import {
+  buildInitialFigurePositions,
+  figureHeightForWidth,
+  layoutWithFigures,
+} from '../figure-layout.js';
 import { useImageRatios } from '../hooks.js';
 import { inlineMeasurementKey, styleForBlock } from '../layout/measurements.js';
 import type { ContentBlock, InlineMetrics, LayoutResult } from '../layout/types.js';
@@ -91,7 +95,25 @@ export function usePretextLayout({
       return changed ? { ...block, words } : block;
     });
   }, [blocks, inlineMetrics, richBlockHeights, textStyle]);
-  const imageRatios = useImageRatios(figures);
+  const loadedImageRatios = useImageRatios(figures);
+  // Interactive outputs report their rendered aspect ratio instead of an image load.
+  const [outputRatios, setOutputRatios] = React.useState<Record<number, number>>({});
+  const updateOutputRatio = React.useCallback((index: number, ratio: number) => {
+    setOutputRatios((current) =>
+      Math.abs((current[index] ?? 0) - ratio) < 0.005 ? current : { ...current, [index]: ratio },
+    );
+  }, []);
+  const imageRatios = React.useMemo(
+    () => ({ ...loadedImageRatios, ...outputRatios }),
+    [loadedImageRatios, outputRatios],
+  );
+  const heightForWidth = React.useCallback(
+    (index: number, width: number) =>
+      figures[index]?.interactive
+        ? figureHeightForWidth(figures[index], width, imageRatios[index], captionHeights[index])
+        : null,
+    [figures, imageRatios, captionHeights],
+  );
   const manualPositions =
     figureLayout?.width === containerWidth &&
     figureLayout?.columns === columnCount &&
@@ -185,6 +207,8 @@ export function usePretextLayout({
     textStyle,
     setFigureLayout,
     updateCaptionHeight,
+    updateOutputRatio,
+    heightForWidth,
     updateRichBlockHeight,
     updateInlineMetrics,
   };

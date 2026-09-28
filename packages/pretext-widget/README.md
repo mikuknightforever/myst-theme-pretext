@@ -60,8 +60,11 @@ and routes. The article provider must expose the resolved AST as
 come from `siteManifest.options`.
 
 The integration reads the AST without rewriting it. Standard static figures are
-detected automatically; compound/linked/interactive content retains its native
-renderer. Unsupported extensions display a notice and their available content.
+detected automatically. A figure whose body is a single notebook output (for
+example a Plotly chart) also becomes a card: it is dragged by its header strip so
+the output keeps hover, zoom and pan, and it is rendered at article width and
+scaled to the card's size. Compound, linked and other interactive content retains
+its native renderer. Unsupported extensions display a notice and their available content.
 
 ## Development acceptance fixtures
 

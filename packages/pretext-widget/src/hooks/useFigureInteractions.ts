@@ -10,12 +10,15 @@ export function useFigureInteractions({
   containerWidth,
   columnCount,
   readingKey,
+  heightForWidth,
 }: {
   figPositions: FigurePosition[] | null;
   setFigureLayout: React.Dispatch<React.SetStateAction<FigureLayoutState | null>>;
   containerWidth: number;
   columnCount: ColumnCount;
   readingKey: string;
+  /** Height a card must have at a width, when its aspect ratio is fixed. */
+  heightForWidth?: (figIndex: number, width: number) => number | null;
 }) {
   const dragRef = React.useRef<DragState | null>(null);
   const [draggingIdx, setDraggingIdx] = React.useState<number | null>(null);
@@ -82,10 +85,11 @@ export function useFigureInteractions({
           inline: false,
         };
       } else {
+        const width = Math.min(containerWidth, Math.max(FIGURE_MIN_W, origW + dx));
         next[figIndex] = {
           ...cur,
-          width: Math.min(containerWidth, Math.max(FIGURE_MIN_W, origW + dx)),
-          height: Math.max(FIGURE_MIN_H, origH + dy),
+          width,
+          height: heightForWidth?.(figIndex, width) ?? Math.max(FIGURE_MIN_H, origH + dy),
           inline: false,
         };
       }
