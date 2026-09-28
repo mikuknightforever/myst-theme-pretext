@@ -156,7 +156,7 @@ export function ReadingSettingsPanel({
         isDark={isDark}
       />
       <SettingSlider
-        label="Reading width"
+        label="Page width"
         value={settings.readingWidth}
         displayValue={`${settings.readingWidth}px`}
         {...READING_SETTING_LIMITS.readingWidth}
