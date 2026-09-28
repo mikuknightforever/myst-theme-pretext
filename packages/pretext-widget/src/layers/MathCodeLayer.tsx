@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { contentScrollTop } from '../scroll-geometry.js';
 import { MyST } from 'myst-to-react';
 import {
   inlineMeasurementKey,
@@ -164,7 +165,7 @@ export function MathCodeLayer({
   React.useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const onScroll = () => setScrollTop(el.scrollTop);
+    const onScroll = () => setScrollTop(contentScrollTop(el, layerRef.current?.parentElement));
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);

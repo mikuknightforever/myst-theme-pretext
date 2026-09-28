@@ -37,6 +37,22 @@ export function ArticlePage({ article }: { article: PageLoader }) {
 
   if (!project) return <Error404 />;
 
+  // Built once so Pretext mode can show the same header above its columns.
+  const header = (
+    <ArticleHeader frontmatter={project} hideAuthors={hide_authors}>
+      <div className="pt-5 md:self-center h-fit lg:pt-0 col-body lg:col-margin-right-inset">
+        <DownloadLinksArea />
+        {compute?.enabled && compute.features.launchBinder && (
+          <div className="col-margin mt-3 mx-5 lg:mt-2 lg:mx-0 lg:w-[300px]">
+            <div className="flex flex-wrap gap-2 lg:flex-col w-[147px] pl-[1px] lg:mx-auto">
+              <LaunchBinder type="link" location={article.location} />
+            </div>
+          </div>
+        )}
+      </div>
+    </ArticleHeader>
+  );
+
   return (
     <ArticleProvider
       kind={article.kind}
@@ -45,18 +61,7 @@ export function ArticlePage({ article }: { article: PageLoader }) {
     >
       <BusyScopeProvider>
         <ExecuteScopeProvider enable={compute?.enabled ?? false} contents={article}>
-          <ArticleHeader frontmatter={project} hideAuthors={hide_authors}>
-            <div className="pt-5 md:self-center h-fit lg:pt-0 col-body lg:col-margin-right-inset">
-              <DownloadLinksArea />
-              {compute?.enabled && compute.features.launchBinder && (
-                <div className="col-margin mt-3 mx-5 lg:mt-2 lg:mx-0 lg:w-[300px]">
-                  <div className="flex flex-wrap gap-2 lg:flex-col w-[147px] pl-[1px] lg:mx-auto">
-                    <LaunchBinder type="link" location={article.location} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </ArticleHeader>
+          {header}
           <article
             data-name="article-page-main"
             className={classNames('myst-article', 'article', grid, 'subgrid-gap col-screen', {
@@ -97,6 +102,7 @@ export function ArticlePage({ article }: { article: PageLoader }) {
             )}
             <Article
               article={article}
+              pretextHeader={header}
               hideKeywords={!isIndex}
               hideTitle={isIndex}
               hideOutline={hide_outline}

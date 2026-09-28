@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { contentScrollTop, scrollTopForContentY } from '../scroll-geometry.js';
 import type { HeadingAnchor } from '../layout/types.js';
 
 /** Keep the reading position and scope local references to this overlay. */
@@ -18,11 +19,16 @@ export function useReadingNavigation({
     if (!pendingHeadingId || !scrollContainer) return;
     const target = headingAnchors.find((heading) => heading.id === pendingHeadingId);
     if (!target) return;
-    scrollContainer.scrollTop = Math.max(0, target.y - 16);
+    scrollContainer.scrollTop = scrollTopForContentY(
+      scrollContainer,
+      contentRef.current,
+      target.y - 16,
+    );
     pendingLayoutHeadingRef.current = null;
   }, [headingAnchors]);
   function rememberReadingPosition() {
-    const scrollTop = scrollRef.current?.scrollTop ?? 0;
+    const scroll = scrollRef.current;
+    const scrollTop = scroll ? contentScrollTop(scroll, contentRef.current) : 0;
     let activeHeading: HeadingAnchor | undefined;
     for (const heading of headingAnchors) {
       if (heading.y <= scrollTop + 80) activeHeading = heading;
@@ -62,7 +68,7 @@ export function useReadingNavigation({
     const y = target
       ? target.getBoundingClientRect().top - content.getBoundingClientRect().top
       : heading!.y;
-    scroll.scrollTop = Math.max(0, y - 16);
+    scroll.scrollTop = scrollTopForContentY(scroll, content, y - 16);
   }
 
   return { rememberReadingPosition, followLocalReference };

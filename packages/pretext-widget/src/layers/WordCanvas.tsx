@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { contentScrollTop } from '../scroll-geometry.js';
 import type { WordSpan } from '../layout.js';
 import { combinedOffset, EXPLODE_RADIUS, isBurstActive, type Burst } from '../effects/explode.js';
 
@@ -22,6 +23,11 @@ export function WordCanvas({
   bursts?: Burst[];
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  // Scroll position in layout coordinates; the canvas sits in the content element.
+  const viewTop = React.useCallback(() => {
+    const container = scrollContainerRef.current;
+    return container ? contentScrollTop(container, canvasRef.current?.parentElement) : 0;
+  }, [scrollContainerRef]);
 
   const draw = React.useCallback(
     (scrollTop: number, now = typeof performance === 'undefined' ? 0 : performance.now()) => {
@@ -98,17 +104,16 @@ export function WordCanvas({
     let frame = 0;
     const tick = () => {
       const now = performance.now();
-      draw(scrollContainerRef.current?.scrollTop ?? 0, now);
+      draw(viewTop(), now);
       if (bursts.some((burst) => isBurstActive(burst, now))) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [bursts, draw, scrollContainerRef]);
+  }, [bursts, draw, viewTop]);
 
   React.useEffect(() => {
-    const container = scrollContainerRef.current;
-    draw(container?.scrollTop ?? 0);
-  }, [draw, scrollContainerRef]);
+    draw(viewTop());
+  }, [draw, viewTop]);
 
   React.useEffect(() => {
     const container = scrollContainerRef.current;
@@ -118,7 +123,7 @@ export function WordCanvas({
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        draw(container.scrollTop);
+        draw(viewTop());
       });
     };
     container.addEventListener('scroll', onScroll, { passive: true });
@@ -126,7 +131,7 @@ export function WordCanvas({
       container.removeEventListener('scroll', onScroll);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [draw, scrollContainerRef]);
+  }, [draw, viewTop]);
 
   return (
     <canvas

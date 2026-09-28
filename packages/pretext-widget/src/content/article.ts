@@ -10,6 +10,35 @@ import type { FigureInfo } from '../model.js';
 import type { ContentBlock, StyledWord } from '../layout/types.js';
 import { semanticText, extractWords } from './inline.js';
 
+export function isAbstractHeading(node: any): boolean {
+  return node?.type === 'heading' && semanticText(node).trim().toLowerCase() === 'abstract';
+}
+
+function containsAbstractHeading(node: any): boolean {
+  return isAbstractHeading(node) || childrenOf(node).some(containsAbstractHeading);
+}
+
+/** Articles whose abstract lives only in front matter (`parts.abstract`) would
+ * otherwise lose it in Pretext; put it first in the flow under its own heading.
+ * Returns the same tree when there is nothing to add; never mutates it. */
+export function withFrontmatterAbstract(mdast: any, frontmatter: any): any {
+  const abstract = frontmatter?.parts?.abstract?.mdast;
+  if (!mdast || !abstract || containsAbstractHeading(mdast)) return mdast;
+  return {
+    ...mdast,
+    children: [
+      {
+        type: 'heading',
+        depth: 2,
+        identifier: 'abstract',
+        children: [{ type: 'text', value: 'Abstract' }],
+      },
+      ...(abstract.type === 'root' ? childrenOf(abstract) : [abstract]),
+      ...childrenOf(mdast),
+    ],
+  };
+}
+
 function slugifyHeading(value: string): string {
   const slug = value
     .toLowerCase()
@@ -79,17 +108,20 @@ export function collectArticle(
         return;
       }
       const plainTitle = semanticText(node).trim() || 'Untitled section';
-      const title = node.enumerator ? `${node.enumerator} ${plainTitle}` : plainTitle;
+      // The article shows its abstract unnumbered (as a front-matter part), so
+      // Pretext drops that one section number too; later numbers are unchanged.
+      const enumerator = isAbstractHeading(node) ? undefined : node.enumerator;
+      const title = enumerator ? `${enumerator} ${plainTitle}` : plainTitle;
       const requestedId = String(
         node.html_id ?? node.identifier ?? node.label ?? slugifyHeading(plainTitle),
       ).replace(/^#/, '');
       const seen = headingIds.get(requestedId) ?? 0;
       headingIds.set(requestedId, seen + 1);
       const headingId = seen === 0 ? requestedId : `${requestedId}-${seen + 1}`;
-      const enumWord: StyledWord[] = node.enumerator
+      const enumWord: StyledWord[] = enumerator
         ? [
             {
-              text: String(node.enumerator),
+              text: String(enumerator),
               bold: true,
               italic: false,
               code: false,

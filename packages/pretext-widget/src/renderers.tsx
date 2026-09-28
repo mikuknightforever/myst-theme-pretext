@@ -9,18 +9,28 @@ import {
 import { PretextLauncher } from './components/PretextLauncher.js';
 import { PretextOverlay } from './components/PretextOverlay.js';
 import { collectArticle } from './layout.js';
+import { withFrontmatterAbstract } from './content/article.js';
 import type { PretextWidget } from './types.js';
 import { findNode } from './content-detection.js';
 import { resolvePretextMode, type PretextMode } from './activation.js';
 
 const PretextModeContext = React.createContext<PretextMode>('manual');
+const PretextHeaderContext = React.createContext<React.ReactNode>(null);
+
+/** Content the theme shows above the article (e.g. its title card), for the overlay. */
+export function usePretextHeader(): React.ReactNode {
+  return React.useContext(PretextHeaderContext);
+}
 
 /** Mount inside the article's providers, once per page, without editing its source AST. */
 export function PretextArticle({
   articleId,
+  header,
   children,
 }: {
   articleId: string;
+  /** Shown above the columns in Pretext mode, such as the theme's article header. */
+  header?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const site = useSiteManifest();
@@ -32,12 +42,14 @@ export function PretextArticle({
 
   return (
     <PretextModeContext.Provider key={articleId} value={mode}>
-      {mode === 'automatic' && (
-        <div className="col-body" data-pretext-entry="automatic">
-          <PretextSession node={legacyNode} />
-        </div>
-      )}
-      {children}
+      <PretextHeaderContext.Provider value={header ?? null}>
+        {mode === 'automatic' && (
+          <div className="col-body" data-pretext-entry="automatic">
+            <PretextSession node={legacyNode} />
+          </div>
+        )}
+        {children}
+      </PretextHeaderContext.Provider>
     </PretextModeContext.Provider>
   );
 }
@@ -51,6 +63,8 @@ export function PretextWidgetRenderer({ node }: { node: PretextWidget }) {
 
 function PretextSession({ node }: { node?: PretextWidget }) {
   const references = useReferences();
+  const frontmatter = useFrontmatter();
+  const header = usePretextHeader();
   const { isDark } = useThemeSwitcher();
   const mdast = (references as any)?.article;
   const [openedArticle, setOpenedArticle] = React.useState<unknown>(null);
@@ -64,8 +78,8 @@ function PretextSession({ node }: { node?: PretextWidget }) {
   const { blocks, figures } = React.useMemo(() => {
     if (!mdast) return { blocks: [], figures: [] };
 
-    return collectArticle(mdast, { draggableSelector });
-  }, [mdast, draggableSelector]);
+    return collectArticle(withFrontmatterAbstract(mdast, frontmatter), { draggableSelector });
+  }, [mdast, frontmatter, draggableSelector]);
 
   if (blocks.length === 0) return null;
 
@@ -79,7 +93,7 @@ function PretextSession({ node }: { node?: PretextWidget }) {
       />
       {open && typeof document !== 'undefined'
         ? createPortal(
-            <PretextOverlay blocks={blocks} figures={figures} onClose={onClose} />,
+            <PretextOverlay blocks={blocks} figures={figures} header={header} onClose={onClose} />,
             document.body,
           )
         : null}

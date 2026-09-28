@@ -1,13 +1,17 @@
 import * as React from 'react';
+import { contentScrollTop, scrollTopForContentY } from '../scroll-geometry.js';
 import type { HeadingAnchor } from '../layout.js';
 
 export function PretextOutline({
   headings,
   scrollContainerRef,
+  contentRef,
   isDark,
 }: {
   headings: HeadingAnchor[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  /** Heading positions are relative to this element, not the scroll container. */
+  contentRef?: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
 }) {
   const [activeId, setActiveId] = React.useState(headings[0]?.id ?? '');
@@ -18,7 +22,7 @@ export function PretextOutline({
     let rafId: number | null = null;
     const update = () => {
       rafId = null;
-      const marker = container.scrollTop + 120;
+      const marker = contentScrollTop(container, contentRef?.current) + 120;
       let next = headings[0].id;
       for (const heading of headings) {
         if (heading.y > marker) break;
@@ -36,7 +40,7 @@ export function PretextOutline({
       container.removeEventListener('scroll', onScroll);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [headings, scrollContainerRef]);
+  }, [headings, scrollContainerRef, contentRef]);
 
   if (headings.length === 0) return null;
   const minDepth = Math.min(...headings.map((heading) => heading.depth));
@@ -64,8 +68,9 @@ export function PretextOutline({
                 type="button"
                 aria-current={active ? 'location' : undefined}
                 onClick={() => {
-                  scrollContainerRef.current?.scrollTo({
-                    top: Math.max(0, heading.y - 24),
+                  const container = scrollContainerRef.current;
+                  container?.scrollTo({
+                    top: scrollTopForContentY(container, contentRef?.current, heading.y - 24),
                     behavior: 'smooth',
                   });
                 }}

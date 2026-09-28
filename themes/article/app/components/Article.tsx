@@ -38,8 +38,11 @@ export function Article({
   hideTitle,
   hideAuthors,
   outlineMaxDepth,
+  pretextHeader,
 }: {
   article: PageLoader;
+  /** The page's article header, repeated above the columns in Pretext mode. */
+  pretextHeader?: React.ReactNode;
   hideKeywords?: boolean;
   hideOutline?: boolean;
   hideTitle?: boolean;
@@ -95,7 +98,10 @@ export function Article({
             article.kind === SourceFileKind.Notebook && <NotebookToolbar showLaunch />}
           <ErrorTray pageSlug={article.slug} />
           <div id="skip-to-article" />
-          <PretextArticle articleId={`${article.project}:${article.location}:${article.slug}`}>
+          <PretextArticle
+            articleId={`${article.project}:${article.location}:${article.slug}`}
+            header={pretextHeader}
+          >
             <FrontmatterParts parts={parts} keywords={keywords} hideKeywords={hideKeywords} />
             <MyST ast={tree} />
             <BackmatterParts parts={parts} />

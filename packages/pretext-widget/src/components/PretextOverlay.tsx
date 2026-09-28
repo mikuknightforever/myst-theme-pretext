@@ -23,18 +23,26 @@ import { PretextToolbar } from './PretextToolbar.js';
 interface OverlayProps {
   blocks: ContentBlock[];
   figures: FigureInfo[];
+  /** Theme-provided content above the columns, such as the article's title card. */
+  header?: React.ReactNode;
   onClose: () => void;
 }
 
 export const PretextOverlay = React.memo(function PretextOverlay({
   blocks,
   figures,
+  header,
   onClose,
 }: OverlayProps) {
   const { isDark, nextTheme } = useThemeSwitcher();
   const { settings: readingSettings, updateSettings, resetSettings } = useReadingSettings();
   const contentRef = React.useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(contentRef as React.RefObject<HTMLDivElement>);
+  const themeFont = React.useMemo(
+    () =>
+      typeof document === 'undefined' ? undefined : getComputedStyle(document.body).fontFamily,
+    [],
+  );
   const outlineFits = useMediaQuery('(min-width: 1180px)');
   const [outlineHidden, toggleOutline] = useOutlineHidden();
   const showOutline = outlineFits && !outlineHidden;
@@ -206,6 +214,21 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           background: isDark ? '#0f172a' : '#ffffff',
         }}
       >
+        {header && (
+          <div
+            className="pretext-article-header"
+            style={{
+              // The overlay sets a reading font; the theme's header keeps the page's own.
+              fontFamily: themeFont,
+              maxWidth: readingSettings.readingWidth + (outlineFits ? 240 : 0),
+              margin: '0 auto',
+              padding: '24px 24px 0',
+              boxSizing: 'border-box',
+            }}
+          >
+            {header}
+          </div>
+        )}
         <div
           style={{
             // Hiding the outline hands its column to the text.
@@ -315,6 +338,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               <PretextOutline
                 headings={headingAnchors}
                 scrollContainerRef={scrollRef}
+                contentRef={contentRef}
                 isDark={isDark}
               />
             </aside>
