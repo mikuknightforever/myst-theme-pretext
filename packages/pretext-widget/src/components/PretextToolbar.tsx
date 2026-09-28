@@ -5,6 +5,7 @@ import type { EffectMode } from '../effects/engine.js';
 import type { ReadingSettings } from '../reading-settings.js';
 import { GLASS_FONT, glassButtonCss, glassTheme, type GlassTheme } from './glass.js';
 import { ReadingSettingsPanel } from './ReadingSettingsPanel.js';
+import { LEAF_SHAPES } from '../effects/leaf-shapes.js';
 
 /** Space the floating toolbar needs at the bottom, including its offset. */
 export const TOOLBAR_CLEARANCE = 88;
@@ -158,6 +159,18 @@ const Icon = {
     </svg>
   ),
   explode: <span aria-hidden="true">✦</span>,
+  leaves: (
+    // The logo's green leaf.
+    <svg
+      width="17"
+      height="17"
+      viewBox={LEAF_SHAPES[0].box.join(' ')}
+      aria-hidden="true"
+      style={{ overflow: 'visible' }}
+    >
+      <path d={LEAF_SHAPES[0].path} fill="currentColor" />
+    </svg>
+  ),
 };
 
 const EFFECTS: Array<{ mode: EffectMode; label: string }> = [
@@ -165,6 +178,7 @@ const EFFECTS: Array<{ mode: EffectMode; label: string }> = [
   { mode: 'scatter', label: 'Scatter: words flee the cursor' },
   { mode: 'magnify', label: 'Magnify: words grow under the cursor' },
   { mode: 'explode', label: 'Explode: click the text' },
+  { mode: 'leaves', label: 'Leaves: falling leaves part the text' },
 ];
 
 export function PretextToolbar({

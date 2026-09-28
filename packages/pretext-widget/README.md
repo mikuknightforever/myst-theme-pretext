@@ -77,8 +77,10 @@ tooltip on hover or keyboard focus:
 - **Aa**: font size, line height, paragraph spacing and page width (how wide the article area can get).
 - **Text effects**, after learn-pretext.com (Scatter is on by default): none (–), Scatter (words flee a fast
   cursor), Magnify (a gentle lens: words within 100 px grow up to 1.25×, each only
-  as far as the gaps around it allow, so nothing overlaps or moves), and Explode
-  (click the text). Scatter uses a damped spring per word pulled back to its
+  as far as the gaps around it allow, so nothing overlaps or moves), Explode
+  (click the text), and Leaves (the three leaves of the Evidence logo fall through
+  the text in alternating sizes, and the words on each row they cross slide aside
+  and close back behind them). Scatter uses a damped spring per word pulled back to its
   laid-out position; effects only change how words are drawn, never the layout,
   and are disabled when the system asks for reduced motion.
 - **On this page** (wide screens) and Exit. The theme switch stays where the

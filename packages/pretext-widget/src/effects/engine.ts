@@ -2,6 +2,7 @@
  * bursts plus cursor springs. The overlay runs a single animation loop that
  * calls beginFrame() and notifies the layers, which ask motion() per word. */
 import { combinedOffset, isBurstActive, type Burst } from './explode.js';
+import { LeafField, leafParting } from './leaves.js';
 import {
   isAtRest,
   magnifyGrowth,
@@ -12,7 +13,7 @@ import {
   type Spring,
 } from './springs.js';
 
-export type EffectMode = 'none' | HoverMode | 'explode';
+export type EffectMode = 'none' | HoverMode | 'explode' | 'leaves';
 
 export interface WordMotion {
   dx: number;
@@ -64,12 +65,15 @@ export class EffectsEngine {
   private wave: { start: number } | null = null;
   private viewTop = 0;
   private viewHeight = 800;
+  /** Falling logo leaves (leaves mode); positions in layout coordinates. */
+  readonly leafField = new LeafField();
   private transition: { start: number; viewTop: number; from: PlacedWord[] } | null = null;
 
   /** Current scroll position (layout coordinates) and height of the view. */
-  setView(top: number, height: number) {
+  setView(top: number, height: number, width?: number) {
     this.viewTop = top;
     this.viewHeight = height;
+    this.leafField.setView(top, height, width ?? 1000);
   }
 
   /** Start the load wave over the text now on screen. */
@@ -117,6 +121,8 @@ export class EffectsEngine {
       (hover && this.cursor != null) ||
       this.lens > 0 ||
       this.words.size > 0 ||
+      this.mode === 'leaves' ||
+      this.leafField.leaves.length > 0 ||
       this.bursts.some((burst) => isBurstActive(burst, now)) ||
       (this.transition != null && now - this.transition.start < TRANSITION_MS) ||
       (this.wave != null && now - this.wave.start < WAVE_MS)
@@ -139,6 +145,10 @@ export class EffectsEngine {
       this.speed *= 0.9;
     }
     this.lastCursor = this.cursor;
+    // Leaves already falling finish their fall after leaves mode is turned off.
+    if (this.mode === 'leaves' || this.leafField.leaves.length) {
+      this.leafField.step(now, this.mode === 'leaves');
+    }
     const lensOn = this.mode === 'magnify' && this.cursor != null;
     if (lensOn) this.lensAt = this.cursor;
     this.lens += ((lensOn ? 1 : 0) - this.lens) * 0.2;
@@ -204,6 +214,7 @@ export class EffectsEngine {
         }
       }
     }
+    tx += this.leafField.leaves.length ? leafParting(cx, cy, this.leafField.leaves) : 0;
     if (this.lens > 0 && this.lensAt) {
       // Words grow in place, each only as far as its gaps allow (no squeezing).
       const width = word ? 2 * (cx - word.x) : undefined;
@@ -226,6 +237,7 @@ export class EffectsEngine {
       this.words.size > 0 ||
       this.cursor != null ||
       this.lens > 0 ||
+      this.leafField.leaves.length > 0 ||
       this.transition != null ||
       this.wave != null
     );

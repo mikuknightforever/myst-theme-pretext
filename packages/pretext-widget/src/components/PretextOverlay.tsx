@@ -21,6 +21,7 @@ import { useReadingSettings } from '../useReadingSettings.js';
 import { InlineMeasurementLayer, MathCodeLayer } from '../layers/MathCodeLayer.js';
 import { RichBlockLayer } from '../layers/RichBlockLayer.js';
 import { WordCanvas } from '../layers/WordCanvas.js';
+import { LeafLayer } from '../layers/LeafLayer.js';
 import { PretextOutline } from './PretextOutline.js';
 import { PretextToolbar, TOOLBAR_CLEARANCE } from './PretextToolbar.js';
 
@@ -65,7 +66,13 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     if (loopRef.current) return;
     const tick = (time: number) => {
       const scroll = scrollRef.current;
-      if (scroll) engine.setView(contentScrollTop(scroll, contentRef.current), scroll.clientHeight);
+      if (scroll) {
+        engine.setView(
+          contentScrollTop(scroll, contentRef.current),
+          scroll.clientHeight,
+          contentRef.current?.clientWidth,
+        );
+      }
       engine.beginFrame(time);
       engine.notify();
       loopRef.current = engine.isActive(time) ? requestAnimationFrame(tick) : 0;
@@ -448,6 +455,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               isDark={isDark}
               engine={engine}
             />
+            <LeafLayer engine={engine} width={containerWidth} scrollContainerRef={scrollRef} />
             <RichBlockLayer
               richBlocks={richBlocks}
               textStyle={textStyle}
