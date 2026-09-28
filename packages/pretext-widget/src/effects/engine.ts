@@ -4,7 +4,7 @@
 import { combinedOffset, isBurstActive, type Burst } from './explode.js';
 import {
   isAtRest,
-  magnifyScale,
+  magnifyGrowth,
   restingSpring,
   SPRING_REACH,
   stepSpring,
@@ -50,6 +50,10 @@ export class EffectsEngine {
   private now = 0;
   private words = new Map<number, WordState>();
   private listeners = new Set<() => void>();
+  /** Magnify lens: eases in while the cursor is over the text, out after it
+   * leaves, around the last cursor position. */
+  private lens = 0;
+  private lensAt: { x: number; y: number } | null = null;
   private viewTop = 0;
   private viewHeight = 800;
   private transition: { start: number; viewTop: number; from: PlacedWord[] } | null = null;
@@ -98,6 +102,7 @@ export class EffectsEngine {
     const hover = this.mode === 'scatter' || this.mode === 'magnify';
     return (
       (hover && this.cursor != null) ||
+      this.lens > 0 ||
       this.words.size > 0 ||
       this.bursts.some((burst) => isBurstActive(burst, now)) ||
       (this.transition != null && now - this.transition.start < TRANSITION_MS)
@@ -119,6 +124,13 @@ export class EffectsEngine {
       this.speed *= 0.9;
     }
     this.lastCursor = this.cursor;
+    const lensOn = this.mode === 'magnify' && this.cursor != null;
+    if (lensOn) this.lensAt = this.cursor;
+    this.lens += ((lensOn ? 1 : 0) - this.lens) * 0.2;
+    if (!lensOn && this.lens < 0.01) {
+      this.lens = 0;
+      this.lensAt = null;
+    }
   }
 
   /** Motion for the word at `index` whose laid-out centre is (cx, cy). */
@@ -137,7 +149,8 @@ export class EffectsEngine {
         ty = offsetY * remaining;
       }
     }
-    const hover = this.mode === 'scatter' || this.mode === 'magnify' ? this.mode : null;
+    // Scatter uses springs; magnify is a lens computed from the cursor directly.
+    const hover = this.mode === 'scatter' ? this.mode : null;
     let state = this.words.get(index);
     const near =
       hover != null &&
@@ -160,15 +173,16 @@ export class EffectsEngine {
         );
         state.frame = this.frame;
       }
-      if (hover === 'magnify' && this.cursor) {
-        scale = magnifyScale(
-          Math.hypot(cx + state.spring.dx - this.cursor.x, cy + state.spring.dy - this.cursor.y),
-        );
-      }
       if (isAtRest(state.spring) && !near) {
         this.words.delete(index);
         state = undefined;
       }
+    }
+    if (this.lens > 0 && this.lensAt) {
+      // Words grow in place, each only as far as its gaps allow (no squeezing).
+      const width = word ? 2 * (cx - word.x) : undefined;
+      const growth = magnifyGrowth(Math.hypot(cx - this.lensAt.x, cy - this.lensAt.y), width);
+      if (growth > 0) scale = 1 + growth * this.lens;
     }
     if (!burst && !state && scale === 1 && tx === 0 && ty === 0) return null;
     return {
@@ -185,6 +199,7 @@ export class EffectsEngine {
       this.bursts.length > 0 ||
       this.words.size > 0 ||
       this.cursor != null ||
+      this.lens > 0 ||
       this.transition != null
     );
   }

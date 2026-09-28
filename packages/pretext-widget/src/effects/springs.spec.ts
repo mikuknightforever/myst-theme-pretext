@@ -36,10 +36,12 @@ describe('cursor springs (learn-pretext scatter and magnify)', () => {
     expect(dist(settled)).toBeLessThan(0.05);
   });
 
-  test('magnify grows words near the cursor up to 1.7x, and not at all far away', () => {
-    expect(magnifyScale(0.001)).toBeCloseTo(1.7, 2);
-    expect(magnifyScale(65)).toBeCloseTo(1.35, 2);
-    expect(magnifyScale(200)).toBe(1);
+  test('magnify grows words gently near the cursor, up to 1.25x, with no edge', () => {
+    expect(magnifyScale(0.001)).toBeCloseTo(1.25, 2);
+    expect(magnifyScale(50)).toBeCloseTo(1.125, 2);
+    expect(magnifyScale(120)).toBe(1);
+    // Smooth falloff: almost no growth just inside the edge, so no visible jump.
+    expect(magnifyScale(95) - 1).toBeLessThan(0.01);
   });
 });
 
@@ -75,8 +77,9 @@ describe('effects engine', () => {
     const engine = new EffectsEngine();
     engine.mode = 'magnify';
     engine.pointer(100, 100);
-    engine.beginFrame(16);
-    expect(engine.motion(1, 110, 100)!.scale).toBeGreaterThan(1.5);
+    // The lens eases in over a few frames.
+    for (let frame = 1; frame <= 30; frame++) engine.beginFrame(frame * 16);
+    expect(engine.motion(1, 110, 100)!.scale).toBeGreaterThan(1.15);
   });
 
   test('a word is stepped once per frame even if it is asked twice', () => {
@@ -88,5 +91,55 @@ describe('effects engine', () => {
     const first = engine.motion(2, 100, 100);
     const again = engine.motion(2, 100, 100);
     expect(again).toEqual(first);
+  });
+});
+
+describe('magnify as a lens', () => {
+  const engineAt = () => {
+    const engine = new EffectsEngine();
+    engine.mode = 'magnify';
+    engine.pointer(100, 100);
+    for (let frame = 1; frame <= 30; frame++) engine.beginFrame(frame * 16);
+    return engine;
+  };
+
+  test('grown words never overlap their neighbours, and nothing is moved', () => {
+    const engine = engineAt();
+    // A line of words of different widths with 6px gaps, centred on the cursor.
+    const widths = [30, 150, 60, 90, 40, 120];
+    let x = 100 - 200;
+    const words = widths.map((w, i) => {
+      const word = { text: `w${i}`, x, y: 90 };
+      x += w + 6;
+      return { word, w };
+    });
+    const extents = words.map(({ word, w }, i) => {
+      const m = engine.motion(i, word.x + w / 2, 100, word);
+      expect(m?.dx ?? 0).toBe(0);
+      const scale = m?.scale ?? 1;
+      return [word.x + w / 2 - (w * scale) / 2, word.x + w / 2 + (w * scale) / 2];
+    });
+    for (let i = 1; i < extents.length; i++) {
+      expect(extents[i][0]).toBeGreaterThanOrEqual(extents[i - 1][1] - 1e-9);
+    }
+    expect(
+      Math.max(
+        ...words.map(({ word, w }, i) => engine.motion(i, word.x + w / 2, 100, word)?.scale ?? 1),
+      ),
+    ).toBeGreaterThan(1.05);
+  });
+
+  test('the lens fades out over several frames when the cursor leaves', () => {
+    const engine = engineAt();
+    const near = () => engine.motion(1, 110, 100)?.scale ?? 1;
+    const before = near();
+    engine.pointerLeave();
+    engine.beginFrame(31 * 16);
+    const after1 = near();
+    expect(after1).toBeLessThan(before);
+    expect(after1).toBeGreaterThan(1);
+    for (let frame = 32; frame < 80; frame++) engine.beginFrame(frame * 16);
+    expect(near()).toBe(1);
+    expect(engine.isActive(80 * 16)).toBe(false);
   });
 });

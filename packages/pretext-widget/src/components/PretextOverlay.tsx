@@ -279,6 +279,45 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           />
         </div>
       )}
+      {/* The theme switch stays where the article has it (top right), outside the toolbar. */}
+      <button
+        type="button"
+        onClick={nextTheme}
+        aria-label="Toggle theme between light and dark mode"
+        title="Toggle theme between light and dark mode"
+        style={{
+          position: 'absolute',
+          top: 16,
+          // right-4 plus the theme button's own mx-3 margin in the article theme.
+          right: 28,
+          zIndex: 100,
+          width: 40,
+          height: 40,
+          padding: '8px',
+          borderRadius: 999,
+          border: `1px solid ${isDark ? '#ffffff' : '#44403c'}`,
+          background: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.6)',
+          color: isDark ? '#ffffff' : '#44403c',
+          cursor: 'pointer',
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+          {isDark ? (
+            <path
+              d="M21.75 15A9.72 9.72 0 0 1 18 15.75 9.75 9.75 0 0 1 8.25 6c0-1.33.27-2.6.75-3.75A9.75 9.75 0 1 0 21.75 15Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+          ) : (
+            <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <circle cx="12" cy="12" r="3.75" />
+              <path d="M12 3v2.25M12 18.75V21M3 12h2.25M18.75 12H21M5.64 5.64l1.59 1.59M16.77 16.77l1.59 1.59M5.64 18.36l1.59-1.59M16.77 7.23l1.59-1.59" />
+            </g>
+          )}
+        </svg>
+      </button>
       <PretextToolbar
         figureCount={figures.length}
         columnCount={columnCount}
@@ -288,7 +327,6 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         onColumnChange={changeColumnCount}
         onReadingSettingsChange={changeReadingSettings}
         onReadingSettingsReset={restoreReadingSettings}
-        onThemeChange={nextTheme}
         outlineToggleAvailable={outlineFits}
         outlineHidden={outlineHidden}
         onOutlineToggle={toggleOutline}

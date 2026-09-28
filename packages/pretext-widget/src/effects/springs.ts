@@ -14,8 +14,26 @@ export interface Spring {
 const HOME_PULL = 0.07; // share of the distance home added to velocity per frame
 const DAMPING = 0.78;
 const SCATTER_RADIUS = 150;
-const MAGNIFY_RADIUS = 130;
-const MAGNIFY_MAX_GROWTH = 0.7;
+const MAGNIFY_RADIUS = 100;
+const MAGNIFY_MAX_GROWTH = 0.25;
+
+/** 1 at the cursor, easing to 0 at `radius` with no visible edge. */
+function magnifyFalloff(distance: number, radius = MAGNIFY_RADIUS): number {
+  if (distance >= radius) return 0;
+  const t = 1 - distance / radius;
+  return t * t * (3 - 2 * t);
+}
+
+/** Word gap the lens may use: each word grows by at most half of it per side,
+ * so neighbours never overlap, without moving any word. */
+const MAGNIFY_GAP = 6;
+
+/** Growth of a word of `width` px at `distance` from the cursor. Short words may
+ * grow up to the maximum; long words only as far as the gaps around them allow. */
+export function magnifyGrowth(distance: number, width?: number): number {
+  const growth = magnifyFalloff(distance) * MAGNIFY_MAX_GROWTH;
+  return width && width > 0 ? Math.min(growth, MAGNIFY_GAP / width) : growth;
+}
 
 export function restingSpring(): Spring {
   return { dx: 0, dy: 0, vx: 0, vy: 0 };
@@ -31,7 +49,7 @@ export function isAtRest(spring: Spring): boolean {
 }
 
 export function magnifyScale(distance: number): number {
-  return distance < MAGNIFY_RADIUS ? 1 + (1 - distance / MAGNIFY_RADIUS) * MAGNIFY_MAX_GROWTH : 1;
+  return 1 + magnifyFalloff(distance) * MAGNIFY_MAX_GROWTH;
 }
 
 /** Advance one word by one frame. `home` is its laid-out centre, `speed` the
@@ -62,7 +80,8 @@ export function stepSpring(
         vy += (random() - 0.5) * closeness * 1.2;
       }
     } else if (mode === 'magnify' && r > 0 && r < MAGNIFY_RADIUS) {
-      const push = (1 - r / MAGNIFY_RADIUS) * 2.5 * 0.15;
+      // Just enough spread that grown words do not overlap their neighbours.
+      const push = magnifyFalloff(r) * 0.2;
       vx += (ex / r) * push;
       vy += (ey / r) * push;
     }

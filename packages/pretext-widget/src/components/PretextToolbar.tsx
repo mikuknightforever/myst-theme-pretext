@@ -168,7 +168,6 @@ export function PretextToolbar({
   onColumnChange,
   onReadingSettingsChange,
   onReadingSettingsReset,
-  onThemeChange,
   outlineToggleAvailable = false,
   outlineHidden = false,
   onOutlineToggle,
@@ -185,7 +184,6 @@ export function PretextToolbar({
   onColumnChange: (value: ColumnCount) => void;
   onReadingSettingsChange: (patch: Partial<ReadingSettings>) => void;
   onReadingSettingsReset: () => void;
-  onThemeChange: () => void;
   /** The outline only has room on wide screens, so the toggle only shows there. */
   outlineToggleAvailable?: boolean;
   outlineHidden?: boolean;
@@ -373,13 +371,7 @@ export function PretextToolbar({
             {Icon.outline}
           </IconButton>
         )}
-        <IconButton
-          theme={theme}
-          label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          onClick={onThemeChange}
-        >
-          <span aria-hidden="true">{isDark ? '☀' : '☾'}</span>
-        </IconButton>
+
         <button
           type="button"
           className="pretext-glass-btn"

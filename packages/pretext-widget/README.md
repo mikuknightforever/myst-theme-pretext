@@ -66,14 +66,18 @@ In Pretext mode a translucent toolbar floats at the bottom:
   instead of filling lines greedily, then stretch every line but the last to its
   column. A paragraph split across columns keeps the breaks chosen for the whole
   paragraph. Only lines whose gaps would exceed about 5 spaces stay left aligned.
-  Paragraphs beside a moved figure use greedy breaks.
+  Paragraphs beside a moved figure use greedy breaks. Citations and links break
+  between their words (each piece keeps the link and hover preview), so a long
+  reference no longer leaves the line before it ragged.
 - **Aa**: font size, line height, paragraph spacing and reading width.
 - **Text effects**, after learn-pretext.com: none (–), Scatter (words flee a fast
-  cursor), Magnify (words near the cursor grow up to 1.7×), and Explode (click the
-  text). Each word is a damped spring pulled back to its laid-out position; effects
-  only change where words are drawn, never the layout, and are disabled when the
-  system asks for reduced motion.
-- **On this page** (wide screens), theme, and Exit.
+  cursor), Magnify (a gentle lens: words within 100 px grow up to 1.25×, each only
+  as far as the gaps around it allow, so nothing overlaps or moves), and Explode
+  (click the text). Scatter uses a damped spring per word pulled back to its
+  laid-out position; effects only change how words are drawn, never the layout,
+  and are disabled when the system asks for reduced motion.
+- **On this page** (wide screens) and Exit. The theme switch stays where the
+  article has it, at the top right.
 
 Text appears as soon as it is laid out, and one translucent band sweeps diagonally
 across the view at the same moment. The sweep is a CSS transform animation, which
