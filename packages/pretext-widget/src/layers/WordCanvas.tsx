@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { contentScrollTop } from '../scroll-geometry.js';
 import type { WordSpan } from '../layout.js';
-import { combinedOffset, EXPLODE_RADIUS, isBurstActive, type Burst } from '../effects/explode.js';
+import { EXPLODE_RADIUS, isBurstActive, type Burst } from '../effects/explode.js';
+import { isIntroActive } from '../effects/intro.js';
+import { isMotionActive, wordMotion } from '../effects/motion.js';
 
 const NO_BURSTS: Burst[] = [];
 
@@ -14,6 +16,8 @@ export function WordCanvas({
   scrollContainerRef,
   isDark,
   bursts = NO_BURSTS,
+  introClock,
+  introRunning = false,
 }: {
   spans: WordSpan[];
   width: number;
@@ -21,6 +25,11 @@ export function WordCanvas({
   isDark: boolean;
   /** Active click-to-explode bursts; words near them are drawn displaced. */
   bursts?: Burst[];
+  /** Milliseconds into the opening animation (null when it is not running),
+   * advanced one frame at a time by the overlay. */
+  introClock?: React.RefObject<number | null>;
+  /** True until the opening animation has finished. */
+  introRunning?: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   // Scroll position in layout coordinates; the canvas sits in the content element.
@@ -57,6 +66,8 @@ export function WordCanvas({
       ctx.clearRect(0, 0, width, canvasH);
 
       const active = bursts.filter((burst) => isBurstActive(burst, now));
+      const introElapsed = introClock?.current ?? null;
+      const intro = isIntroActive(introElapsed);
       for (let index = 0; index < spans.length; index++) {
         const s = spans[index];
         if (s.code || s.math || s.semanticNode || s.maxWidth != null) continue;
@@ -74,14 +85,14 @@ export function WordCanvas({
               Math.abs(burst.x - s.x) < EXPLODE_RADIUS + 400 &&
               Math.abs(burst.y - s.y) < EXPLODE_RADIUS + s.style.lineHeight,
           );
-        if (!nearBurst) {
+        if (!nearBurst && !intro) {
           ctx.fillText(s.text, s.x, baseline);
           continue;
         }
         const halfWidth = ctx.measureText(s.text).width / 2;
         const cx = s.x + halfWidth;
         const cy = s.y + s.style.lineHeight / 2;
-        const offset = combinedOffset(cx, cy, index, active, now);
+        const offset = wordMotion(cx, cy, index, active, introElapsed, now);
         if (!offset) {
           ctx.fillText(s.text, s.x, baseline);
           continue;
@@ -89,27 +100,28 @@ export function WordCanvas({
         // Rotate around the word's centre, then draw it at its displaced position.
         const centreY = cy - canvasTop;
         ctx.save();
+        ctx.globalAlpha = offset.alpha;
         ctx.translate(cx + offset.dx, centreY + offset.dy);
         ctx.rotate(offset.rotation);
         ctx.fillText(s.text, -halfWidth, baseline - centreY);
         ctx.restore();
       }
     },
-    [spans, width, scrollContainerRef, isDark, bursts],
+    [spans, width, scrollContainerRef, isDark, bursts, introClock, introRunning],
   );
 
   // Animate only while a burst is in flight, then draw the settled text once.
   React.useEffect(() => {
-    if (bursts.length === 0) return;
+    if (bursts.length === 0 && !introRunning) return;
     let frame = 0;
     const tick = () => {
       const now = performance.now();
       draw(viewTop(), now);
-      if (bursts.some((burst) => isBurstActive(burst, now))) frame = requestAnimationFrame(tick);
+      if (introRunning || isMotionActive(bursts, null, now)) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [bursts, draw, viewTop]);
+  }, [bursts, introRunning, draw, viewTop]);
 
   React.useEffect(() => {
     draw(viewTop());

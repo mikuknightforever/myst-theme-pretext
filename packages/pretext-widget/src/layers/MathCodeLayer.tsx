@@ -11,6 +11,7 @@ import {
   type WordSpan,
 } from '../layout.js';
 import { applyExplodeTransforms, type Burst } from '../effects/explode.js';
+import { wordMotion } from '../effects/motion.js';
 
 const NO_BURSTS: Burst[] = [];
 
@@ -133,24 +134,34 @@ export function MathCodeLayer({
   scrollContainerRef,
   isDark,
   bursts = NO_BURSTS,
+  introClock,
+  introRunning = false,
 }: {
   spans: WordSpan[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
   /** Active click-to-explode bursts; tokens near them fly with the canvas words. */
   bursts?: Burst[];
+  /** Milliseconds into the opening animation (null when it is not running),
+   * advanced one frame at a time by the overlay. */
+  introClock?: React.RefObject<number | null>;
+  /** True until the opening animation has finished. */
+  introRunning?: boolean;
 }) {
   const layerRef = React.useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
   // Transforms are written straight to the elements each frame; React never
   // sets `transform` here, so re-renders while scrolling leave them alone.
   React.useEffect(() => {
-    if (bursts.length === 0) return;
+    if (bursts.length === 0 && !introRunning) return;
     let frame = 0;
     const tick = () => {
       const elements = layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]');
-      const moving = applyExplodeTransforms(elements ?? [], spans, bursts, performance.now());
-      if (moving) frame = requestAnimationFrame(tick);
+      const now = performance.now();
+      const moving = applyExplodeTransforms(elements ?? [], spans, bursts, now, (cx, cy, index) =>
+        wordMotion(cx, cy, index, bursts, introClock?.current ?? null, now),
+      );
+      if (moving || introRunning) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => {
@@ -159,9 +170,10 @@ export function MathCodeLayer({
         ?.querySelectorAll<HTMLElement>('[data-pretext-inline]')
         .forEach((element) => {
           element.style.transform = '';
+          element.style.opacity = '';
         });
     };
-  }, [bursts, spans]);
+  }, [bursts, introRunning, introClock, spans]);
   React.useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

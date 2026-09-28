@@ -31,7 +31,7 @@ const UPWARD_KICK = 250; // px/s, scaled by closeness
 const MAX_SPIN = 6 * Math.PI; // rad/s
 
 /** Deterministic pseudo-random number in [0, 1) for one word of one burst. */
-function random(seed: number, index: number, channel: number): number {
+export function random(seed: number, index: number, channel: number): number {
   let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(index + 1, 0xc2b2ae35);
   h = Math.imul(h ^ (channel * 0x27d4eb2f), 0x165667b1);
   h ^= h >>> 15;
@@ -108,12 +108,19 @@ export function combinedOffset(
   return result;
 }
 
+/** Motion of the token centred at (cx, cy); `alpha` is only set by the intro. */
+export type MotionAt = (
+  cx: number,
+  cy: number,
+  index: number,
+) => (WordOffset & { alpha?: number }) | null;
+
 /** The parts of a DOM token that exploding needs; kept minimal so it is testable. */
 export interface ExplodableElement {
   dataset: { pretextInline?: string };
   offsetWidth: number;
   offsetHeight: number;
-  style: { transform: string; transformOrigin: string };
+  style: { transform: string; transformOrigin: string; opacity?: string };
 }
 
 /** Apply burst offsets to DOM-rendered tokens (citations, links, math, code) as
@@ -124,6 +131,7 @@ export function applyExplodeTransforms(
   spans: ReadonlyArray<{ x: number; y: number }>,
   bursts: Burst[],
   now: number,
+  motionAt: MotionAt = (cx, cy, index) => combinedOffset(cx, cy, index, bursts, now),
 ): boolean {
   let moving = false;
   for (let i = 0; i < elements.length; i++) {
@@ -131,20 +139,16 @@ export function applyExplodeTransforms(
     const index = Number(element.dataset.pretextInline);
     const span = spans[index];
     const offset = span
-      ? combinedOffset(
-          span.x + element.offsetWidth / 2,
-          span.y + element.offsetHeight / 2,
-          index,
-          bursts,
-          now,
-        )
+      ? motionAt(span.x + element.offsetWidth / 2, span.y + element.offsetHeight / 2, index)
       : null;
     if (offset) {
       moving = true;
       element.style.transformOrigin = 'center';
       element.style.transform = `translate(${offset.dx.toFixed(1)}px, ${offset.dy.toFixed(1)}px) rotate(${offset.rotation.toFixed(3)}rad)`;
-    } else if (element.style.transform) {
+      element.style.opacity = offset.alpha == null ? '' : String(offset.alpha);
+    } else if (element.style.transform || element.style.opacity) {
       element.style.transform = '';
+      element.style.opacity = '';
     }
   }
   return moving;

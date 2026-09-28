@@ -60,9 +60,17 @@ into place after about 1.4 s. It only changes how the text is drawn, never the
 layout, ignores clicks on links, figures, math and code, and is unavailable when
 the system asks for reduced motion.
 
+On opening, the text plays a short "grid snap": every word starts at a random spot
+and moves in a straight line to its computed position. The animation advances one
+frame at a time (at most 34 ms per frame), so a slow start, such as charts
+rendering, slows it down rather than skipping it. It is skipped when the system
+asks for reduced motion.
+
 ## Theme integration
 
-The package exports `PretextArticle` and `PRETEXT_RENDERERS`. A compatible theme
+The package exports `PretextArticle` and `PRETEXT_RENDERERS`. `PretextArticle`
+takes an optional `header`, drawn above the columns in Pretext mode; the article
+theme passes its article header card. A compatible theme
 registers the renderers as before and wraps the article body in `PretextArticle`,
 inside its article and site providers. Pass an `articleId` unique across projects
 and routes. The article provider must expose the resolved AST as

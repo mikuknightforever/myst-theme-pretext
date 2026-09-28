@@ -5,6 +5,7 @@ import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '
 import { FigureCard } from '../figures/FigureCard.js';
 import { EXPLODE_TOTAL_MS, isBurstActive, type Burst } from '../effects/explode.js';
 import { useOutlineHidden } from '../outline-preference.js';
+import { advanceIntro } from '../effects/intro.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
@@ -50,6 +51,10 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   const [funMode, setFunMode] = React.useState(false);
   const explodeEnabled = funMode && !reduceMotion;
   const [bursts, setBursts] = React.useState<Burst[]>([]);
+  // Grid-snap intro: a frame-driven clock (see advanceIntro). It stays at 0,
+  // with words invisible at their starting spots, until the first layout exists.
+  const introClock = React.useRef<number | null>(reduceMotion ? null : 0);
+  const [introRunning, setIntroRunning] = React.useState(!reduceMotion);
   const burstSeed = React.useRef(1);
   // Drop finished bursts so the canvas animation loop can stop.
   React.useEffect(() => {
@@ -106,6 +111,26 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateRichBlockHeight,
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
+  const layoutReady = spans.length > 0 && containerWidth > 0;
+  React.useEffect(() => {
+    if (!introRunning) return;
+    if (reduceMotion) {
+      introClock.current = null;
+      setIntroRunning(false);
+      return;
+    }
+    if (!layoutReady) return;
+    let frame = 0;
+    let last = performance.now();
+    const tick = (time: number) => {
+      introClock.current = advanceIntro(introClock.current, time - last);
+      last = time;
+      if (introClock.current == null) setIntroRunning(false);
+      else frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [introRunning, layoutReady, reduceMotion]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
       figPositions,
@@ -282,6 +307,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               scrollContainerRef={scrollRef}
               isDark={isDark}
               bursts={bursts}
+              introClock={introClock}
+              introRunning={introRunning}
             />
             <InlineMeasurementLayer
               blocks={blocks}
@@ -293,6 +320,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               scrollContainerRef={scrollRef}
               isDark={isDark}
               bursts={bursts}
+              introClock={introClock}
+              introRunning={introRunning}
             />
             <RichBlockLayer
               richBlocks={richBlocks}
