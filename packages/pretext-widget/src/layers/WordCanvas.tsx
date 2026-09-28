@@ -32,6 +32,8 @@ export function WordCanvas({
   introRunning?: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  // Word widths for animated drawing, measured once per laid-out span.
+  const widthCache = React.useRef(new WeakMap<WordSpan, number>());
   // Scroll position in layout coordinates; the canvas sits in the content element.
   const viewTop = React.useCallback(() => {
     const container = scrollContainerRef.current;
@@ -66,6 +68,7 @@ export function WordCanvas({
       ctx.clearRect(0, 0, width, canvasH);
 
       const active = bursts.filter((burst) => isBurstActive(burst, now));
+      let moved = false;
       const introElapsed = introClock?.current ?? null;
       const intro = isIntroActive(introElapsed);
       for (let index = 0; index < spans.length; index++) {
@@ -89,7 +92,12 @@ export function WordCanvas({
           ctx.fillText(s.text, s.x, baseline);
           continue;
         }
-        const halfWidth = ctx.measureText(s.text).width / 2;
+        let fullWidth = widthCache.current.get(s);
+        if (fullWidth === undefined) {
+          fullWidth = ctx.measureText(s.text).width;
+          widthCache.current.set(s, fullWidth);
+        }
+        const halfWidth = fullWidth / 2;
         const cx = s.x + halfWidth;
         const cy = s.y + s.style.lineHeight / 2;
         const offset = wordMotion(cx, cy, index, active, introElapsed, now);
@@ -97,14 +105,20 @@ export function WordCanvas({
           ctx.fillText(s.text, s.x, baseline);
           continue;
         }
-        // Rotate around the word's centre, then draw it at its displaced position.
+        if (offset.alpha <= 0) continue;
+        // Rotate around the word's centre, then draw it at its displaced position,
+        // with one transform instead of save/translate/rotate/restore per word.
         const centreY = cy - canvasTop;
-        ctx.save();
+        const cos = Math.cos(offset.rotation) * dpr;
+        const sin = Math.sin(offset.rotation) * dpr;
+        ctx.setTransform(cos, sin, -sin, cos, (cx + offset.dx) * dpr, (centreY + offset.dy) * dpr);
         ctx.globalAlpha = offset.alpha;
-        ctx.translate(cx + offset.dx, centreY + offset.dy);
-        ctx.rotate(offset.rotation);
         ctx.fillText(s.text, -halfWidth, baseline - centreY);
-        ctx.restore();
+        moved = true;
+      }
+      if (moved) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.globalAlpha = 1;
       }
     },
     [spans, width, scrollContainerRef, isDark, bursts, introClock, introRunning],

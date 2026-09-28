@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ColumnCount } from './column-layout.js';
+import { glassTheme } from './components/glass.js';
 
 const COLUMN_OPTIONS: ColumnCount[] = [1, 2, 3];
 
@@ -14,26 +15,19 @@ export function ColumnSelector({
   onChange: (count: ColumnCount) => void;
   isDark: boolean;
 }) {
+  const theme = glassTheme(isDark);
   return (
     <div
       role="group"
       aria-label="Article columns"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 3,
-        padding: 3,
-        border: `1px solid ${isDark ? 'rgba(226,232,240,0.28)' : 'rgba(15,23,42,0.16)'}`,
-        borderRadius: 999,
-        background: isDark ? 'rgba(30,41,59,0.82)' : 'rgba(248,250,252,0.9)',
-      }}
+      style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}
     >
       <span
         style={{
-          paddingLeft: 7,
-          paddingRight: 3,
+          padding: '0 6px 0 4px',
           fontSize: 11,
-          color: isDark ? '#94a3b8' : '#64748b',
+          fontWeight: 500,
+          color: theme.muted,
           userSelect: 'none',
         }}
       >
@@ -46,6 +40,7 @@ export function ColumnSelector({
           <button
             key={count}
             type="button"
+            className="pretext-glass-btn"
             aria-label={`${count} column${count === 1 ? '' : 's'}`}
             aria-pressed={selected}
             disabled={disabled}
@@ -59,12 +54,13 @@ export function ColumnSelector({
               width: 30,
               height: 30,
               border: 0,
-              borderRadius: 999,
-              background: selected ? (isDark ? '#f8fafc' : '#111827') : 'transparent',
-              color: selected ? (isDark ? '#0f172a' : '#ffffff') : isDark ? '#cbd5e1' : '#334155',
-              opacity: disabled ? 0.35 : 1,
+              borderRadius: 12,
+              background: selected ? theme.accentBg : 'transparent',
+              color: selected ? theme.accent : theme.text,
+              opacity: disabled ? 0.3 : 1,
               fontSize: 12,
-              fontWeight: 800,
+              fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
               cursor: disabled ? 'not-allowed' : 'pointer',
             }}
           >

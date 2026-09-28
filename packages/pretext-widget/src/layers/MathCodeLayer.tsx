@@ -151,29 +151,35 @@ export function MathCodeLayer({
   const layerRef = React.useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
   // Transforms are written straight to the elements each frame; React never
-  // sets `transform` here, so re-renders while scrolling leave them alone.
-  React.useEffect(() => {
-    if (bursts.length === 0 && !introRunning) return;
+  // sets `transform` here, so re-renders while scrolling leave them alone. A
+  // layout effect applies the current motion before the browser paints, so
+  // re-rendered tokens never flash in their final place mid-animation.
+  const animating = bursts.length > 0 || introRunning;
+  React.useLayoutEffect(() => {
+    if (!animating) return;
     let frame = 0;
-    const tick = () => {
+    const apply = () => {
       const elements = layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]');
       const now = performance.now();
-      const moving = applyExplodeTransforms(elements ?? [], spans, bursts, now, (cx, cy, index) =>
+      return applyExplodeTransforms(elements ?? [], spans, bursts, now, (cx, cy, index) =>
         wordMotion(cx, cy, index, bursts, introClock?.current ?? null, now),
       );
-      if (moving || introRunning) frame = requestAnimationFrame(tick);
     };
+    const tick = () => {
+      if (apply() || introRunning) frame = requestAnimationFrame(tick);
+    };
+    apply();
     frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      layerRef.current
-        ?.querySelectorAll<HTMLElement>('[data-pretext-inline]')
-        .forEach((element) => {
-          element.style.transform = '';
-          element.style.opacity = '';
-        });
-    };
-  }, [bursts, introRunning, introClock, spans]);
+    return () => cancelAnimationFrame(frame);
+  }, [animating, bursts, introRunning, introClock, spans]);
+  // Clear leftover styles only once every effect has finished.
+  React.useLayoutEffect(() => {
+    if (animating) return;
+    layerRef.current?.querySelectorAll<HTMLElement>('[data-pretext-inline]').forEach((element) => {
+      element.style.transform = '';
+      element.style.opacity = '';
+    });
+  }, [animating, spans]);
   React.useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

@@ -5,7 +5,7 @@ import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '
 import { FigureCard } from '../figures/FigureCard.js';
 import { EXPLODE_TOTAL_MS, isBurstActive, type Burst } from '../effects/explode.js';
 import { useOutlineHidden } from '../outline-preference.js';
-import { advanceIntro } from '../effects/intro.js';
+import { advanceIntro, createSettleDetector } from '../effects/intro.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
@@ -19,7 +19,7 @@ import { InlineMeasurementLayer, MathCodeLayer } from '../layers/MathCodeLayer.j
 import { RichBlockLayer } from '../layers/RichBlockLayer.js';
 import { WordCanvas } from '../layers/WordCanvas.js';
 import { PretextOutline } from './PretextOutline.js';
-import { PretextToolbar } from './PretextToolbar.js';
+import { PretextToolbar, TOOLBAR_CLEARANCE } from './PretextToolbar.js';
 
 interface OverlayProps {
   blocks: ContentBlock[];
@@ -112,6 +112,10 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     updateInlineMetrics,
   } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
   const layoutReady = spans.length > 0 && containerWidth > 0;
+  const lastLayoutChange = React.useRef(0);
+  React.useEffect(() => {
+    lastLayoutChange.current = performance.now();
+  }, [spans]);
   React.useEffect(() => {
     if (!introRunning) return;
     if (reduceMotion) {
@@ -122,9 +126,14 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     if (!layoutReady) return;
     let frame = 0;
     let last = performance.now();
+    // Words stay hidden (clock at 0) until the page has settled, then play.
+    const settle = createSettleDetector();
+    let playing = false;
     const tick = (time: number) => {
-      introClock.current = advanceIntro(introClock.current, time - last);
+      const frameMs = time - last;
       last = time;
+      if (!playing) playing = settle.frame(frameMs, time - lastLayoutChange.current);
+      else introClock.current = advanceIntro(introClock.current, frameMs);
       if (introClock.current == null) setIntroRunning(false);
       else frame = requestAnimationFrame(tick);
     };
@@ -237,6 +246,8 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           overflow: 'auto',
           overscrollBehavior: 'contain',
           background: isDark ? '#0f172a' : '#ffffff',
+          // The floating toolbar sits over the top; text scrolls underneath it.
+          paddingTop: TOOLBAR_CLEARANCE - 24,
         }}
       >
         {header && (

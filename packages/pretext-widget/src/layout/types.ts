@@ -5,6 +5,8 @@ export interface TextStyle {
   fontFamily: string;
   fontWeight: string;
   color: string;
+  /** Paragraph alignment; left when omitted. Never changes where lines break. */
+  textAlign?: 'left' | 'justify';
 }
 
 export const DEFAULT_TEXT_STYLE: TextStyle = {

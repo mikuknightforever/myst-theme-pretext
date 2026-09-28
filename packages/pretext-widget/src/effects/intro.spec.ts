@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { INTRO_MAX_STEP_MS, INTRO_MS, advanceIntro, introMotion } from './intro.js';
+import {
+  INTRO_MAX_STEP_MS,
+  INTRO_MS,
+  SETTLE_MAX_WAIT_MS,
+  advanceIntro,
+  createSettleDetector,
+  introMotion,
+} from './intro.js';
 import { wordMotion } from './motion.js';
 import type { Burst } from './explode.js';
 
@@ -15,7 +22,7 @@ describe('grid-snap opening animation', () => {
 
   test('each word travels in a straight line, without rotating', () => {
     const first = introMotion(3, 0)!;
-    for (const t of [200, 500, 800]) {
+    for (const t of [100, 300, 600]) {
       const later = introMotion(3, t)!;
       expect(later.rotation).toBe(0);
       // Same direction as the starting offset, only shorter.
@@ -43,5 +50,38 @@ describe('grid-snap opening animation', () => {
     expect(both.alpha).toBe(intro.alpha);
     expect(both.dx).not.toBeCloseTo(intro.dx, 3);
     expect(wordMotion(10, 0, 1, [], null, 5300)).toBeNull();
+  });
+});
+
+describe('waiting for the page to settle before the intro', () => {
+  test('starts after four quick frames in a row', () => {
+    const detector = createSettleDetector();
+    // The 200ms frame resets the count; the four frames after it settle.
+    const frames = [900, 150, 20, 16, 200, 16, 17, 16, 16];
+    const settled = frames.map((frameMs) => detector.frame(frameMs));
+    expect(settled).toEqual([false, false, false, false, false, false, false, false, true]);
+  });
+
+  test('does not start while the layout is still changing', () => {
+    const detector = createSettleDetector();
+    // Quick frames, but the layout changed 100ms ago each time.
+    for (let i = 0; i < 6; i++) expect(detector.frame(16, 100)).toBe(false);
+    expect(detector.frame(16, 400)).toBe(true);
+  });
+
+  test('starts anyway once the maximum wait has passed', () => {
+    const detector = createSettleDetector();
+    let settled = false;
+    for (let i = 0; i < 20 && !settled; i++) settled = detector.frame(250);
+    expect(settled).toBe(true);
+    expect(detector.waited).toBeGreaterThanOrEqual(SETTLE_MAX_WAIT_MS);
+  });
+
+  test('the intro is short and snappy', () => {
+    expect(INTRO_MS).toBeLessThanOrEqual(800);
+    // Most of the motion happens in the first third.
+    const start = introMotion(7, 0)!;
+    const early = introMotion(7, INTRO_MS / 3)!;
+    expect(Math.hypot(early.dx, early.dy)).toBeLessThan(Math.hypot(start.dx, start.dy) * 0.3);
   });
 });

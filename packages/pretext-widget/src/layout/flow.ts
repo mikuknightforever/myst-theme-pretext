@@ -12,6 +12,42 @@ import type {
 } from './types.js';
 import { measureCached, styleForBlock } from './measurements.js';
 
+const WORD_GAP = 6;
+/** A justified gap may grow to at most 2.5 normal spaces; wider lines stay left. */
+const JUSTIFY_MAX_EXTRA = WORD_GAP * 1.5;
+
+interface PlacedSegment {
+  from: number;
+  to: number;
+  end: number;
+  widths: number[];
+}
+
+/** Stretch one line segment to its right edge by widening its word gaps.
+ * Word widths and line breaks are untouched. */
+function justifySegment(spans: WordSpan[], segment: PlacedSegment, skipFirstGap: boolean) {
+  const { from, to, end, widths } = segment;
+  if (to - from < 2) return;
+  const gaps: number[] = [];
+  for (let k = from + 1; k < to; k++) {
+    if (skipFirstGap && k === from + 1) continue;
+    if (spans[k].x - (spans[k - 1].x + widths[k - 1 - from]) > 0.5) gaps.push(k);
+  }
+  if (gaps.length === 0) return;
+  const slack = end - (spans[to - 1].x + widths[to - 1 - from]);
+  const extra = slack / gaps.length;
+  if (extra <= 0 || extra > JUSTIFY_MAX_EXTRA) return;
+  let shift = 0;
+  let next = 0;
+  for (let k = from + 1; k < to; k++) {
+    if (gaps[next] === k) {
+      shift += extra;
+      next++;
+    }
+    spans[k].x += shift;
+  }
+}
+
 /**
  * Return the horizontal segments available for a line spanning [lineTop, lineBottom],
  * avoiding all obstacle rects. Merges overlapping blocked intervals before
@@ -199,12 +235,14 @@ export function layoutBlocks(
       const wiAtLineStart = wi;
       const spanStart = spans.length;
       let lineHeight = blockStyle.lineHeight;
+      let placedSegments: PlacedSegment[] = [];
       // Recheck obstacles whenever an inline formula enlarges the line box.
       let retryLine: boolean;
       do {
         retryLine = false;
         wi = wiAtLineStart;
         spans.length = spanStart;
+        placedSegments = [];
         const segments = getLineSegments(y, y + lineHeight, blockObstacles, 0, containerWidth);
         if (segments.length === 0) {
           y = Math.max(
@@ -218,6 +256,12 @@ export function layoutBlocks(
         for (const [segStart, segEnd] of segments) {
           let x = segStart;
           let placedInSegment = false;
+          const segment: PlacedSegment = {
+            from: spans.length,
+            to: spans.length,
+            end: segEnd,
+            widths: [],
+          };
           // Indent list items past their bullet on continuation lines
           if (isListItem && wi > 0 && segStart === 0) x += 18;
           while (wi < words.length) {
@@ -263,7 +307,10 @@ export function layoutBlocks(
             x += ww;
             wi++;
             placedInSegment = true;
+            segment.widths.push(ww);
           }
+          segment.to = spans.length;
+          if (segment.to > segment.from) placedSegments.push(segment);
           if (retryLine) break;
         }
         if (retryLine) continue;
@@ -297,6 +344,15 @@ export function layoutBlocks(
           wi++;
         }
       } while (retryLine);
+      if (blockStyle.textAlign === 'justify' && block.type !== 'heading') {
+        // The paragraph's final line stays left aligned, unless the paragraph
+        // continues in the next column.
+        const endsParagraph = wi >= words.length && !block.continues;
+        placedSegments.forEach((segment, index) => {
+          if (endsParagraph && index === placedSegments.length - 1) return;
+          justifySegment(spans, segment, Boolean(isListItem) && wiAtLineStart === 0 && index === 0);
+        });
+      }
       y += lineHeight;
     }
 

@@ -61,10 +61,17 @@ layout, ignores clicks on links, figures, math and code, and is unavailable when
 the system asks for reduced motion.
 
 On opening, the text plays a short "grid snap": every word starts at a random spot
-and moves in a straight line to its computed position. The animation advances one
-frame at a time (at most 34 ms per frame), so a slow start, such as charts
-rendering, slows it down rather than skipping it. It is skipped when the system
-asks for reduced motion.
+and moves in a straight line to its computed position in about 0.8 s. Words stay
+hidden until the page has settled (a few quick frames in a row and no layout change
+for 300 ms, or at most 3.5 s), so the animation runs at full frame rate instead of
+stuttering while charts render. It is skipped when the system asks for reduced
+motion.
+
+The toolbar floats over the article as a translucent pill. Reading settings (Aa)
+include the alignment: left (default) or justified. Justified lines are stretched
+to their column or to the space beside a figure by widening word gaps; last lines of
+paragraphs stay left aligned, and a line whose gaps would exceed about 2.5 spaces
+stays left aligned too. Line breaks are the same in both modes.
 
 ## Theme integration
 

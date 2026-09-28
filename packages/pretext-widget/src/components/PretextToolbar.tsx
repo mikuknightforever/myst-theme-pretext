@@ -2,7 +2,70 @@ import * as React from 'react';
 import { ColumnSelector } from '../ColumnSelector.js';
 import type { ColumnCount } from '../column-layout.js';
 import type { ReadingSettings } from '../reading-settings.js';
+import { GLASS_FONT, glassButtonCss, glassTheme, type GlassTheme } from './glass.js';
 import { ReadingSettingsPanel } from './ReadingSettingsPanel.js';
+
+/** Height the floating toolbar occupies, including its offset from the top. */
+export const TOOLBAR_CLEARANCE = 80;
+
+function IconButton({
+  theme,
+  pressed = false,
+  disabled = false,
+  label,
+  title,
+  onClick,
+  children,
+  expanded,
+}: {
+  theme: GlassTheme;
+  pressed?: boolean;
+  disabled?: boolean;
+  label: string;
+  title?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+  expanded?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="pretext-glass-btn"
+      aria-label={label}
+      aria-pressed={expanded == null ? pressed : undefined}
+      aria-expanded={expanded}
+      title={title ?? label}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        width: 34,
+        height: 34,
+        flexShrink: 0,
+        border: 0,
+        borderRadius: 14,
+        background: pressed || expanded ? theme.accentBg : 'transparent',
+        color: pressed || expanded ? theme.accent : theme.text,
+        display: 'grid',
+        placeItems: 'center',
+        fontFamily: GLASS_FONT,
+        fontSize: 15,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Divider({ theme }: { theme: GlassTheme }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{ width: 1, height: 20, flexShrink: 0, background: theme.divider, margin: '0 4px' }}
+    />
+  );
+}
 
 export function PretextToolbar({
   figureCount,
@@ -41,108 +104,94 @@ export function PretextToolbar({
   onFunModeToggle?: () => void;
   onClose: () => void;
 }) {
-  const roundButton = (pressed: boolean): React.CSSProperties => ({
-    width: 42,
-    height: 42,
-    border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
-    borderRadius: 999,
-    background: pressed
-      ? isDark
-        ? 'rgba(96,165,250,0.2)'
-        : 'rgba(37,99,235,0.1)'
-      : isDark
-        ? '#1e293b'
-        : '#ffffff',
-    color: isDark ? '#f8fafc' : '#111827',
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: 18,
-    cursor: 'pointer',
-  });
+  const theme = glassTheme(isDark);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
-  const settingsRef = React.useRef<HTMLDivElement>(null);
+  const toolbarRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     if (!settingsOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!settingsRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+      if (!toolbarRef.current?.contains(event.target as Node)) setSettingsOpen(false);
     };
     document.addEventListener('pointerdown', closeOnOutsideClick);
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
   }, [settingsOpen]);
 
   return (
-    <header
+    <div
+      ref={toolbarRef}
+      role="toolbar"
+      aria-label="Pretext Mode"
       style={{
-        position: 'relative',
+        position: 'absolute',
+        top: 16,
+        left: '50%',
+        transform: 'translateX(-50%)',
         zIndex: 100,
-        height: 68,
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        borderBottom: '1px solid rgba(148,163,184,0.3)',
-        background: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.9)',
-        backdropFilter: 'blur(12px)',
-        boxSizing: 'border-box',
+        maxWidth: 'calc(100% - 32px)',
+        fontFamily: GLASS_FONT,
       }}
     >
-      <div>
-        <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>Pretext Mode</div>
-        <div style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
-          {figureCount} draggable figure{figureCount !== 1 ? 's' : ''} · rendered via MyST
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <style>{glassButtonCss(theme)}</style>
+      <div
+        className="pretext-glass-row"
+        style={{
+          ...theme.surface,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 6px 4px 8px',
+          borderRadius: 28,
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+          boxSizing: 'border-box',
+        }}
+      >
+        <span
+          title={`${figureCount} draggable figure${figureCount !== 1 ? 's' : ''} · rendered via MyST`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '0 10px 0 6px',
+            flexShrink: 0,
+            fontSize: 13,
+            fontWeight: 650,
+            letterSpacing: '-0.01em',
+            color: theme.text,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{ width: 3, height: 16, borderRadius: 2, background: theme.accent }}
+          />
+          Pretext
+        </span>
+        <Divider theme={theme} />
         <ColumnSelector
           value={columnCount}
           maxColumns={maxColumnCount}
           onChange={onColumnChange}
           isDark={isDark}
         />
-        <div ref={settingsRef} style={{ position: 'relative' }}>
-          <button
-            type="button"
-            aria-label="Reading settings"
-            aria-expanded={settingsOpen}
-            onClick={() => setSettingsOpen((current) => !current)}
-            style={{
-              height: 42,
-              minWidth: 48,
-              border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
-              borderRadius: 999,
-              background: settingsOpen
-                ? isDark
-                  ? 'rgba(96,165,250,0.2)'
-                  : 'rgba(37,99,235,0.1)'
-                : isDark
-                  ? '#1e293b'
-                  : '#ffffff',
-              color: isDark ? '#f8fafc' : '#111827',
-              fontFamily: 'Georgia, "Times New Roman", serif',
-              fontSize: 17,
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
+        <Divider theme={theme} />
+        <IconButton
+          theme={theme}
+          label="Reading settings"
+          expanded={settingsOpen}
+          onClick={() => setSettingsOpen((current) => !current)}
+        >
+          <span style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 700 }}>
             Aa
-          </button>
-          {settingsOpen && (
-            <ReadingSettingsPanel
-              settings={readingSettings}
-              isDark={isDark}
-              onChange={onReadingSettingsChange}
-              onReset={onReadingSettingsReset}
-            />
-          )}
-        </div>
+          </span>
+        </IconButton>
         {onFunModeToggle && (
-          <button
-            type="button"
-            onClick={onFunModeToggle}
+          <IconButton
+            theme={theme}
+            label="Fun mode"
+            pressed={funMode}
             disabled={!funModeAvailable}
-            aria-pressed={funMode}
             title={
               funModeAvailable
                 ? funMode
@@ -150,32 +199,25 @@ export function PretextToolbar({
                   : 'Fun mode: click the text to explode it'
                 : 'Fun mode is off because your system asks for reduced motion'
             }
-            aria-label="Fun mode"
-            style={{
-              ...roundButton(funMode),
-              opacity: funModeAvailable ? 1 : 0.45,
-              cursor: funModeAvailable ? 'pointer' : 'not-allowed',
-            }}
+            onClick={onFunModeToggle}
           >
             <span aria-hidden="true">✦</span>
-          </button>
+          </IconButton>
         )}
         {outlineToggleAvailable && onOutlineToggle && (
-          <button
-            type="button"
+          <IconButton
+            theme={theme}
+            label={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
+            pressed={!outlineHidden}
             onClick={onOutlineToggle}
-            aria-pressed={!outlineHidden}
-            title={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
-            aria-label={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
-            style={roundButton(!outlineHidden)}
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
               <rect
                 x="1.5"
                 y="2.5"
                 width="15"
                 height="13"
-                rx="2"
+                rx="2.5"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
@@ -188,56 +230,49 @@ export function PretextToolbar({
                 stroke="currentColor"
                 strokeWidth="1.5"
               />
-              {!outlineHidden && (
-                <rect
-                  x="11.5"
-                  y="2.5"
-                  width="5"
-                  height="13"
-                  rx="1"
-                  fill="currentColor"
-                  opacity="0.35"
-                />
-              )}
             </svg>
-          </button>
+          </IconButton>
         )}
-        <button
-          type="button"
+        <IconButton
+          theme={theme}
+          label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={onThemeChange}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={{
-            width: 42,
-            height: 42,
-            border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
-            borderRadius: 999,
-            background: isDark ? '#1e293b' : '#ffffff',
-            color: isDark ? '#f8fafc' : '#111827',
-            display: 'grid',
-            placeItems: 'center',
-            fontSize: 20,
-            cursor: 'pointer',
-          }}
         >
           <span aria-hidden="true">{isDark ? '☀' : '☾'}</span>
-        </button>
+        </IconButton>
+        <Divider theme={theme} />
         <button
+          type="button"
+          className="pretext-glass-btn"
+          aria-label="Exit Pretext Mode"
+          title="Exit Pretext Mode (Esc)"
           onClick={onClose}
           style={{
-            border: `1px solid ${isDark ? 'rgba(226,232,240,0.32)' : 'rgba(15,23,42,0.2)'}`,
-            borderRadius: 999,
-            padding: '10px 16px',
-            background: isDark ? '#f8fafc' : '#111827',
-            color: isDark ? '#0f172a' : '#fff',
-            fontWeight: 800,
-            fontSize: 14,
+            height: 34,
+            flexShrink: 0,
+            padding: '0 14px',
+            border: 0,
+            borderRadius: 14,
+            background: 'transparent',
+            color: theme.muted,
+            fontFamily: GLASS_FONT,
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
             cursor: 'pointer',
           }}
         >
-          Exit Pretext Mode
+          Exit
         </button>
       </div>
-    </header>
+      {settingsOpen && (
+        <ReadingSettingsPanel
+          settings={readingSettings}
+          isDark={isDark}
+          onChange={onReadingSettingsChange}
+          onReset={onReadingSettingsReset}
+        />
+      )}
+    </div>
   );
 }

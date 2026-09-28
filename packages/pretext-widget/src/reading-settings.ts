@@ -6,6 +6,7 @@ export interface ReadingSettings {
   lineHeight: number;
   paragraphGap: number;
   readingWidth: number;
+  textAlign: 'left' | 'justify';
 }
 
 export const DEFAULT_READING_SETTINGS: ReadingSettings = {
@@ -13,6 +14,7 @@ export const DEFAULT_READING_SETTINGS: ReadingSettings = {
   lineHeight: PRETEXT_TEXT_STYLE.lineHeight / PRETEXT_TEXT_STYLE.fontSize,
   paragraphGap: PRETEXT_TEXT_STYLE.paragraphGap,
   readingWidth: 1400,
+  textAlign: 'left',
 };
 
 export const READING_SETTING_LIMITS = {
@@ -54,11 +56,13 @@ export function normalizeReadingSettings(value: unknown): ReadingSettings {
       READING_SETTING_LIMITS.readingWidth.max,
       DEFAULT_READING_SETTINGS.readingWidth,
     ),
+    textAlign: settings.textAlign === 'justify' ? 'justify' : 'left',
   };
 }
 
 export function readingSettingsKey(settings: ReadingSettings): string {
-  return `${settings.fontSize}:${settings.lineHeight.toFixed(2)}:${settings.paragraphGap}:${settings.readingWidth}`;
+  const key = `${settings.fontSize}:${settings.lineHeight.toFixed(2)}:${settings.paragraphGap}:${settings.readingWidth}`;
+  return settings.textAlign === 'justify' ? `${key}:justify` : key;
 }
 
 export function readingTextStyle(settings: ReadingSettings): TextStyle {
@@ -67,5 +71,7 @@ export function readingTextStyle(settings: ReadingSettings): TextStyle {
     fontSize: settings.fontSize,
     lineHeight: Math.round(settings.fontSize * settings.lineHeight),
     paragraphGap: settings.paragraphGap,
+    // Left is the default and stays out of the style, keeping layout keys unchanged.
+    ...(settings.textAlign === 'justify' && { textAlign: 'justify' as const }),
   };
 }
