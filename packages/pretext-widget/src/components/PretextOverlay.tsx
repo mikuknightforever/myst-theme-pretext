@@ -56,7 +56,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   // while something moves, and the layers redraw from the engine each frame.
   const engine = React.useMemo(() => new EffectsEngine(), []);
   // Scatter is on by default: move the cursor quickly across the words.
-  const [effectMode, setEffectMode] = React.useState<EffectMode>('scatter');
+  const [effectMode, setEffectMode] = React.useState<EffectMode>('leaves');
   const [welcomeSeen, setWelcomeSeen] = useStoredFlag(WELCOME_SEEN_KEY);
   const activeMode: EffectMode = reduceMotion ? 'none' : effectMode;
   engine.mode = activeMode;

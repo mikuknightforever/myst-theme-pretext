@@ -75,7 +75,7 @@ tooltip on hover or keyboard focus:
   between their words (each piece keeps the link and hover preview), so a long
   reference no longer leaves the line before it ragged.
 - **Aa**: font size, line height, paragraph spacing and page width (how wide the article area can get).
-- **Text effects**, after learn-pretext.com (Scatter is on by default): none (–), Scatter (words flee a fast
+- **Text effects**, after learn-pretext.com (Leaves is on by default): none (–), Scatter (words flee a fast
   cursor), Magnify (a gentle lens: words within 100 px grow up to 1.25×, each only
   as far as the gaps around it allow, so nothing overlaps or moves), Explode
   (click the text), and Leaves (the Evidence logo floats around the page and

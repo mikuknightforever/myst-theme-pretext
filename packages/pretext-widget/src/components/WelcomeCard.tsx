@@ -50,8 +50,8 @@ export function WelcomeCard({ isDark, onClose }: { isDark: boolean; onClose: () 
         moves around it. To resize a figure, drag its bottom-right corner.
       </p>
       <p style={{ ...paragraph, color: theme.muted, fontSize: 13 }}>
-        Move your mouse quickly over the words to scatter them. You can change or turn off this
-        effect in the toolbar at the bottom.
+        The Evidence logo floats over the text and fires its leaves. Click the logo to fire them
+        yourself. You can change or turn off this effect in the toolbar at the bottom.
       </p>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
         <button

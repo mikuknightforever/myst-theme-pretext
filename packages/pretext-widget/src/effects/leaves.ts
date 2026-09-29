@@ -261,9 +261,17 @@ export class LeafField {
     return true;
   }
 
+  /** Where the text starts in the view (it can start below a banner at the
+   * top of the article), px from the top of the view. */
+  private textTopInView() {
+    return Math.min(Math.max(0, -this.top), Math.max(0, this.height - SHIP_SIZE));
+  }
+
+  /** A new spot to drift to, over the middle of the text that is on screen. */
   private pickTarget(ship: Mothership, now: number) {
+    const from = this.textTopInView();
     ship.targetX = this.width * (0.25 + this.random() * 0.5);
-    ship.targetY = this.height * (0.25 + this.random() * 0.5);
+    ship.targetY = from + (this.height - from) * (0.25 + this.random() * 0.5);
     ship.retargetAt = now + 6000;
   }
 
@@ -277,7 +285,7 @@ export class LeafField {
     if (active && (!this.ship || this.ship.leaving)) {
       const ship: Mothership = this.ship ?? {
         x: this.width * 0.5,
-        y: -SHIP_SIZE,
+        y: this.textTopInView() - SHIP_SIZE,
         vx: 0,
         vy: 0,
         targetX: 0,
@@ -300,7 +308,9 @@ export class LeafField {
       }
       if (!ship.leaving) {
         const near = Math.hypot(ship.targetX - ship.x, ship.targetY - ship.y) < 30;
-        if (near || now >= ship.retargetAt) this.pickTarget(ship, now);
+        // Scrolling can move the text out from under the spot it was heading for.
+        const offText = ship.targetY < this.textTopInView() + SHIP_SIZE / 2;
+        if (near || offText || now >= ship.retargetAt) this.pickTarget(ship, now);
       }
       const pull = ship.leaving ? SHIP_PULL * 3 : SHIP_PULL;
       ship.vx += ((ship.targetX - ship.x) * pull - ship.vx * SHIP_DAMPING) * dt;

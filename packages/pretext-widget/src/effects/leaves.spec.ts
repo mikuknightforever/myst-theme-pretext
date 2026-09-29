@@ -121,6 +121,19 @@ describe('the floating logo', () => {
     expect(ship.y).toBeLessThan(1000 * 0.9);
   });
 
+  test('stays over the text when the text starts below a banner', () => {
+    const field = new LeafField(seeded());
+    // The text starts 440 px down the view (content scroll top is -440).
+    field.setView(-440, 1000, 1200);
+    run(field, 0, 20000);
+    expect(field.ship!.y).toBeGreaterThan(440);
+    // Scrolling down to the text: the logo still stays within the view.
+    field.setView(600, 1000, 1200);
+    run(field, 20016, 40000);
+    expect(field.ship!.y).toBeGreaterThan(100);
+    expect(field.ship!.y).toBeLessThan(900);
+  });
+
   test('fires its three leaves outward plus smaller ones, then grows them back', () => {
     const field = new LeafField(seeded());
     field.setView(0, 1000, 1200);
