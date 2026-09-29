@@ -2,7 +2,7 @@
  * bursts plus cursor springs. The overlay runs a single animation loop that
  * calls beginFrame() and notifies the layers, which ask motion() per word. */
 import { combinedOffset, isBurstActive, type Burst } from './explode.js';
-import { LeafField, leafParting } from './leaves.js';
+import { LeafField, leafParting, partRow, type Obstacle } from './leaves.js';
 import {
   isAtRest,
   magnifyGrowth,
@@ -65,8 +65,17 @@ export class EffectsEngine {
   private wave: { start: number } | null = null;
   private viewTop = 0;
   private viewHeight = 800;
-  /** Falling logo leaves (leaves mode); positions in layout coordinates. */
+  /** The floating logo and its leaves (leaves mode); layout coordinates. */
   readonly leafField = new LeafField();
+  /** What the text parts around this frame. */
+  private obstacles: Obstacle[] = [];
+  /** The laid-out words grouped into rows (left to right), so a row can part
+   * as a whole; widths are learned as words are drawn. */
+  private wordsRef: ReadonlyArray<PlacedWord> = [];
+  private rowOf: Int32Array = new Int32Array(0);
+  private rows: number[][] = [];
+  private widths = new Map<number, number>();
+  private rowOffsets = new Map<number, { frame: number; offsets: Map<number, number> }>();
   private transition: { start: number; viewTop: number; from: PlacedWord[] } | null = null;
 
   /** Current scroll position (layout coordinates) and height of the view. */
@@ -74,6 +83,52 @@ export class EffectsEngine {
     this.viewTop = top;
     this.viewHeight = height;
     this.leafField.setView(top, height, width ?? 1000);
+  }
+
+  /** The laid-out words, in reading order (the same indices `motion` gets). */
+  setWords(words: ReadonlyArray<PlacedWord>) {
+    this.rowOf = new Int32Array(words.length);
+    this.rows = [];
+    this.widths.clear();
+    this.rowOffsets.clear();
+    let row: number[] = [];
+    for (let i = 0; i < words.length; i++) {
+      const previous = row.length ? words[row[row.length - 1]] : null;
+      if (previous && (Math.abs(words[i].y - previous.y) > 0.5 || words[i].x <= previous.x)) {
+        this.rows.push(row);
+        row = [];
+      }
+      row.push(i);
+      this.rowOf[i] = this.rows.length;
+    }
+    if (row.length) this.rows.push(row);
+    this.wordsRef = words;
+  }
+
+  /** Offsets for every word on the row of word `index`, parted as a whole. */
+  private rowParting(index: number, cy: number): Map<number, number> | null {
+    const rowId = this.rowOf[index];
+    const row = this.rows[rowId];
+    if (!row || this.wordsRef[index] == null) return null;
+    const cached = this.rowOffsets.get(rowId);
+    if (cached && cached.frame === this.frame) return cached.offsets;
+    const lefts = row.map((i) => this.wordsRef[i].x);
+    const widths = row.map((i, k) => {
+      const known = this.widths.get(i);
+      if (known != null) return known;
+      // Not drawn yet this layout: assume a normal space before the next word.
+      return k + 1 < row.length ? Math.max(1, lefts[k + 1] - lefts[k] - 4) : 50;
+    });
+    const desired = row.map((_, k) => leafParting(lefts[k] + widths[k] / 2, cy, this.obstacles));
+    const offsets = new Map<number, number>();
+    if (desired.some((value) => value !== 0)) {
+      const parted = partRow(lefts, widths, desired);
+      row.forEach((i, k) => {
+        if (Math.abs(parted[k]) >= 0.05) offsets.set(i, parted[k]);
+      });
+    }
+    this.rowOffsets.set(rowId, { frame: this.frame, offsets });
+    return offsets;
   }
 
   /** Start the load wave over the text now on screen. */
@@ -123,6 +178,7 @@ export class EffectsEngine {
       this.words.size > 0 ||
       this.mode === 'leaves' ||
       this.leafField.leaves.length > 0 ||
+      this.leafField.ship != null ||
       this.bursts.some((burst) => isBurstActive(burst, now)) ||
       (this.transition != null && now - this.transition.start < TRANSITION_MS) ||
       (this.wave != null && now - this.wave.start < WAVE_MS)
@@ -145,10 +201,12 @@ export class EffectsEngine {
       this.speed *= 0.9;
     }
     this.lastCursor = this.cursor;
-    // Leaves already falling finish their fall after leaves mode is turned off.
-    if (this.mode === 'leaves' || this.leafField.leaves.length) {
+    // After leaves mode is turned off the logo flies away and the leaves
+    // already out finish their fall.
+    if (this.mode === 'leaves' || this.leafField.leaves.length || this.leafField.ship) {
       this.leafField.step(now, this.mode === 'leaves');
     }
+    this.obstacles = this.leafField.obstacles();
     const lensOn = this.mode === 'magnify' && this.cursor != null;
     if (lensOn) this.lensAt = this.cursor;
     this.lens += ((lensOn ? 1 : 0) - this.lens) * 0.2;
@@ -214,7 +272,13 @@ export class EffectsEngine {
         }
       }
     }
-    tx += this.leafField.leaves.length ? leafParting(cx, cy, this.leafField.leaves) : 0;
+    if (this.obstacles.length) {
+      // The whole row parts together, so words never run into each other or
+      // past the edge of the text.
+      if (word) this.widths.set(index, 2 * (cx - word.x));
+      const row = word ? this.rowParting(index, cy) : null;
+      tx += row ? (row.get(index) ?? 0) : leafParting(cx, cy, this.obstacles);
+    }
     if (this.lens > 0 && this.lensAt) {
       // Words grow in place, each only as far as its gaps allow (no squeezing).
       const width = word ? 2 * (cx - word.x) : undefined;
@@ -237,7 +301,7 @@ export class EffectsEngine {
       this.words.size > 0 ||
       this.cursor != null ||
       this.lens > 0 ||
-      this.leafField.leaves.length > 0 ||
+      this.obstacles.length > 0 ||
       this.transition != null ||
       this.wave != null
     );

@@ -84,6 +84,10 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   React.useEffect(() => () => cancelAnimationFrame(loopRef.current), []);
   React.useEffect(() => {
     if (activeMode !== 'scatter' && activeMode !== 'magnify') engine.pointerLeave();
+    // The pointer cursor over the floating logo is set directly; clear it.
+    if (activeMode !== 'leaves' && activeMode !== 'explode' && contentRef.current) {
+      contentRef.current.style.cursor = '';
+    }
     ensureLoop();
   }, [activeMode, engine, ensureLoop]);
   const contentPoint = (
@@ -94,6 +98,11 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   };
   const trackPointer = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      if (activeMode === 'leaves') {
+        const { x, y } = contentPoint(event);
+        event.currentTarget.style.cursor = engine.leafField.hitShip(x, y) ? 'pointer' : '';
+        return;
+      }
       if (activeMode !== 'scatter' && activeMode !== 'magnify') return;
       const { x, y } = contentPoint(event);
       engine.pointer(x, y);
@@ -166,11 +175,28 @@ export const PretextOverlay = React.memo(function PretextOverlay({
       readingKey,
       heightForWidth,
     });
+  React.useEffect(() => engine.setWords(spans), [engine, spans]);
   const { rememberReadingPosition, followLocalReference } = useReadingNavigation({
     headingAnchors,
     contentRef,
     scrollRef,
   });
+  /** A click on the floating logo fires its leaves, even over a link. */
+  const clickCapture = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (activeMode === 'leaves') {
+        const { x, y } = contentPoint(event);
+        if (engine.leafField.hitShip(x, y)) {
+          event.preventDefault();
+          event.stopPropagation();
+          engine.leafField.fire(performance.now());
+          return;
+        }
+      }
+      followLocalReference(event);
+    },
+    [activeMode, engine, followLocalReference],
+  );
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -397,7 +423,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         >
           <div
             ref={contentRef}
-            onClickCapture={followLocalReference}
+            onClickCapture={clickCapture}
             onClick={explodeAt}
             onPointerMove={trackPointer}
             onPointerLeave={releasePointer}
@@ -455,7 +481,12 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               isDark={isDark}
               engine={engine}
             />
-            <LeafLayer engine={engine} width={containerWidth} scrollContainerRef={scrollRef} />
+            <LeafLayer
+              engine={engine}
+              width={containerWidth}
+              scrollContainerRef={scrollRef}
+              isDark={isDark}
+            />
             <RichBlockLayer
               richBlocks={richBlocks}
               textStyle={textStyle}

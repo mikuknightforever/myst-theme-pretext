@@ -178,7 +178,10 @@ const EFFECTS: Array<{ mode: EffectMode; label: string }> = [
   { mode: 'scatter', label: 'Scatter: words flee the cursor' },
   { mode: 'magnify', label: 'Magnify: words grow under the cursor' },
   { mode: 'explode', label: 'Explode: click the text' },
-  { mode: 'leaves', label: 'Leaves: falling leaves part the text' },
+  {
+    mode: 'leaves',
+    label: 'Leaves: the logo fires its leaves through the text (click the logo to fire)',
+  },
 ];
 
 export function PretextToolbar({

@@ -78,9 +78,12 @@ tooltip on hover or keyboard focus:
 - **Text effects**, after learn-pretext.com (Scatter is on by default): none (–), Scatter (words flee a fast
   cursor), Magnify (a gentle lens: words within 100 px grow up to 1.25×, each only
   as far as the gaps around it allow, so nothing overlaps or moves), Explode
-  (click the text), and Leaves (the three leaves of the Evidence logo fall through
-  the text in alternating sizes, and the words on each row they cross slide aside
-  and close back behind them). Scatter uses a damped spring per word pulled back to its
+  (click the text), and Leaves (the Evidence logo floats around the page and
+  every few seconds fires its three leaves, plus smaller copies, outward; they
+  slow down and flutter off the page while the logo grows new ones, and clicking
+  the logo fires a volley straight away). The rows around the logo and each leaf
+  part: a gap opens where it is, taken from the spaces between the other words on
+  the row, so words never overlap or move past the edge of the text. Scatter uses a damped spring per word pulled back to its
   laid-out position; effects only change how words are drawn, never the layout,
   and are disabled when the system asks for reduced motion.
 - **On this page** (wide screens) and Exit. The theme switch stays where the
