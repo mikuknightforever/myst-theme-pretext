@@ -9,6 +9,7 @@ import {
   useBaseurl,
   useGridSystemProvider,
   useLinkProvider,
+  useProjectManifest,
   useSiteManifest,
 } from '@myst-theme/providers';
 import classNames from 'classnames';
@@ -16,6 +17,7 @@ import { BusyScopeProvider, ExecuteScopeProvider } from '@myst-theme/jupyter';
 import { DownloadLinksArea } from './Downloads';
 import { Article } from './Article';
 import type { TemplateOptions } from '../types.js';
+import { withBanner } from '../utils/banners.js';
 
 export function ArticlePage({ article }: { article: PageLoader }) {
   const grid = useGridSystemProvider();
@@ -24,7 +26,6 @@ export function ArticlePage({ article }: { article: PageLoader }) {
   const pageDesign: TemplateOptions = (article.frontmatter as any)?.site ?? {};
   const siteDesign: TemplateOptions = siteManifest?.options ?? {};
 
-  const { projects } = siteManifest;
   const { hide_footer_links, hide_outline, outline_maxdepth, hide_authors } = {
     ...siteDesign,
     ...pageDesign,
@@ -32,14 +33,18 @@ export function ArticlePage({ article }: { article: PageLoader }) {
   const Link = useLinkProvider();
   const baseurl = useBaseurl();
   const compute = useComputeOptions();
-  const project = projects?.[0];
+  // The route's project (the first one on a site with a single project).
+  const project = useProjectManifest();
   const isIndex = article.slug === project?.index;
 
   if (!project) return <Error404 />;
 
   // Built once so Pretext mode can show the same header above its columns.
   const header = (
-    <ArticleHeader frontmatter={project} hideAuthors={hide_authors}>
+    <ArticleHeader
+      frontmatter={withBanner(project, siteManifest?.projects)}
+      hideAuthors={hide_authors}
+    >
       <div className="pt-5 md:self-center h-fit lg:pt-0 col-body lg:col-margin-right-inset">
         <DownloadLinksArea />
         {compute?.enabled && compute.features.launchBinder && (
@@ -71,7 +76,7 @@ export function ArticlePage({ article }: { article: PageLoader }) {
             {!isIndex && (
               <div className="flex items-center p-3 mb-10 border-y bg-slate-50 dark:bg-slate-600 border-y-slate-300 col-screen">
                 <Link
-                  to={baseurl || '/'}
+                  to={`${baseurl ?? ''}/${article.project ?? ''}`}
                   className="flex gap-1 px-2 py-1 font-normal no-underline rounded border bg-slate-200 border-slate-600 hover:bg-slate-800 hover:text-white hover:border-transparent"
                 >
                   <ArrowLeftIcon

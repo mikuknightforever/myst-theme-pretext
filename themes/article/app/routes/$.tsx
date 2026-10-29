@@ -78,11 +78,15 @@ export default function Page() {
   // const { container, outline } = useOutlineHeight();
   // const { hide_outline } = (article.frontmatter as any)?.options ?? {};
   const baseurl = useBaseurl();
-  const { page: article } = useLoaderData() as { page: PageLoader };
+  const { page: article, project } = useLoaderData() as {
+    page: PageLoader;
+    project?: Parameters<typeof ProjectProvider>[0]['project'];
+  };
 
   return (
     <ArticlePageAndNavigation>
-      <ProjectProvider>
+      {/* The page's own project, so a site with several projects shows the right one. */}
+      <ProjectProvider project={project}>
         <ComputeOptionsProvider
           features={{ notebookCompute: false, figureCompute: true, launchBinder: true }}
         >
