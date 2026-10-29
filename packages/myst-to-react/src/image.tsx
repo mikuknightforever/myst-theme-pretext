@@ -1,5 +1,6 @@
 import type { Image as ImageNodeSpec } from 'myst-spec';
 import type { NodeRenderer } from '@myst-theme/providers';
+import { useLazyLoading } from '@myst-theme/providers';
 import classNames from 'classnames';
 
 type Alignment = 'left' | 'center' | 'right';
@@ -97,6 +98,7 @@ function Picture({
   height?: string;
   align?: Alignment;
 }) {
+  const lazy = useLazyLoading();
   if (src.endsWith('.mp4') || urlSource?.endsWith('.mp4')) {
     return (
       <Video
@@ -113,6 +115,8 @@ function Picture({
   const image = (
     <img
       id={id}
+      loading={lazy ? 'lazy' : undefined}
+      decoding="async"
       style={{
         width: getStyleValue(width),
         height: getStyleValue(height),

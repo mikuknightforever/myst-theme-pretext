@@ -3,6 +3,7 @@ import type { MinifiedMimeBundle, MinifiedMimePayload, MinifiedOutput } from 'nb
 import Stream from './stream.js';
 import Error from './error.js';
 import Ansi from '@curvenote/ansi-to-react';
+import { useLazyLoading } from '@myst-theme/providers';
 
 /**
  * https://jupyterbook.org/content/code-outputs.html#render-priority
@@ -42,7 +43,15 @@ function findSafeMimeOutputs(output: MinifiedOutput): {
 }
 
 function OutputImage({ image, text }: { image: MinifiedMimePayload; text?: MinifiedMimePayload }) {
-  return <img src={image?.path} alt={text?.content ?? 'Image produced in Jupyter'} />;
+  const lazy = useLazyLoading();
+  return (
+    <img
+      src={image?.path}
+      alt={text?.content ?? 'Image produced in Jupyter'}
+      loading={lazy ? 'lazy' : undefined}
+      decoding="async"
+    />
+  );
 }
 
 export function SafeOutput({ output }: { output: MinifiedOutput }) {

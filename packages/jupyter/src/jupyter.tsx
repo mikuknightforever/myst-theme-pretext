@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { useNearScreen } from '@myst-theme/providers';
 import type { IOutput } from '@jupyterlab/nbformat';
 import { useFetchAnyTruncatedContent } from './hooks.js';
 import type { MinifiedOutput } from 'nbtx';
@@ -7,6 +8,7 @@ import { fetchAndEncodeOutputImages } from './convertImages.js';
 import { SourceFileKind } from 'myst-spec-ext';
 import { useThebeLoader } from 'thebe-react';
 import { PassiveOutputRenderer } from './passive.js';
+import { outputWithUniqueIds } from './unique-ids.js';
 
 /**
  * Render one output whose MIME bundle can't be displayed with plain HTML
@@ -19,11 +21,13 @@ import { PassiveOutputRenderer } from './passive.js';
  * @param outputsId - The id of the cell.
  * @param output - The output data.
  */
-export const JupyterOutput = React.memo(
+const LoadedJupyterOutput = React.memo(
   ({ outputsId, output }: { outputsId: string; output: MinifiedOutput }) => {
     const { core, load } = useThebeLoader();
     const { data, error } = useFetchAnyTruncatedContent([output]);
     const [fullOutput, setFullOutput] = useState<IOutput | null>(null);
+    // Each rendered copy of an output gets its own ids (see unique-ids.ts).
+    const copyId = useId().replace(/[^A-Za-z0-9]/g, '');
 
     useEffect(() => {
       if (core) return;
@@ -35,9 +39,9 @@ export const JupyterOutput = React.memo(
 
       fetchAndEncodeOutputImages(data).then((out) => {
         const compactOutputs = convertToIOutputs(out, {});
-        setFullOutput(compactOutputs[0]);
+        setFullOutput(outputWithUniqueIds(compactOutputs[0], copyId));
       });
-    }, [outputsId, data, fullOutput]);
+    }, [outputsId, data, fullOutput, copyId]);
 
     if (error) {
       console.error(error);
@@ -66,6 +70,28 @@ export const JupyterOutput = React.memo(
             kind={SourceFileKind.Notebook}
           ></PassiveOutputRenderer>
         )}
+      </div>
+    );
+  },
+);
+
+/** Space kept for an output that has not loaded yet, so the page does not
+ * jump much when it does. Most charts are about this tall. */
+const PLACEHOLDER_MIN_HEIGHT = 300;
+
+/**
+ * Fetching and rendering an output waits until it is near the screen: an
+ * output can be megabytes of HTML with its own copy of a plotting library.
+ * Where lazy loading is off (see LazyLoadingProvider), it loads at once.
+ */
+export const JupyterOutput = React.memo(
+  ({ outputsId, output }: { outputsId: string; output: MinifiedOutput }) => {
+    const ref = useRef<HTMLDivElement>(null);
+    const near = useNearScreen(ref);
+    if (near) return <LoadedJupyterOutput outputsId={outputsId} output={output} />;
+    return (
+      <div ref={ref} style={{ minHeight: PLACEHOLDER_MIN_HEIGHT }}>
+        <div className="p-2.5">Loading...</div>
       </div>
     );
   },
