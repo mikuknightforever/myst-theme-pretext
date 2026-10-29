@@ -7,7 +7,14 @@ import { FigureCard } from '../figures/FigureCard.js';
 import { EffectsEngine, WAVE_MS, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
 import { useStoredFlag, WELCOME_SEEN_KEY } from '../preferences.js';
-import { WelcomeCard } from './WelcomeCard.js';
+import {
+  PretextTour,
+  TOUR_ATTRIBUTE,
+  TOUR_INTRO,
+  TOUR_STEPS,
+  tourRequested,
+  type TourStep,
+} from './PretextTour.js';
 import { contentScrollTop } from '../scroll-geometry.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
@@ -58,6 +65,18 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   // Scatter is on by default: move the cursor quickly across the words.
   const [effectMode, setEffectMode] = React.useState<EffectMode>('leaves');
   const [welcomeSeen, setWelcomeSeen] = useStoredFlag(WELCOME_SEEN_KEY);
+  // The guided tour of the controls. It starts on its own the first time the
+  // reader opens (with a welcome step first), and again from the toolbar's "?"
+  // button or a link to the article with ?tour (for demonstrations).
+  const [tourSteps, setTourSteps] = React.useState<TourStep[] | null>(null);
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const startTour = React.useCallback(
+    (withIntro = false) => {
+      setWelcomeSeen(true);
+      setTourSteps(withIntro ? [TOUR_INTRO, ...TOUR_STEPS] : TOUR_STEPS);
+    },
+    [setWelcomeSeen],
+  );
   const activeMode: EffectMode = reduceMotion ? 'none' : effectMode;
   engine.mode = activeMode;
   const loopRef = React.useRef(0);
@@ -138,6 +157,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     spans,
     richBlocks,
     headingAnchors,
+    panels,
     figPositions,
     basePositions,
     captionModes,
@@ -166,6 +186,12 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     const timer = setTimeout(() => setOutputsReady(true), WAVE_MS + 50);
     return () => clearTimeout(timer);
   }, [engine, ensureLoop, layoutReady, outputsReady]);
+  const tourChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (tourChecked.current || !layoutReady) return;
+    tourChecked.current = true;
+    if (!welcomeSeen || tourRequested(window.location.search)) startTour(true);
+  }, [layoutReady, startTour, welcomeSeen]);
   const { draggingIdx, resizingIdx, startDrag, startResize, moveDrag, endDrag } =
     useFigureInteractions({
       figPositions: basePositions,
@@ -198,15 +224,13 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     [activeMode, engine, followLocalReference],
   );
   React.useEffect(() => {
+    // While the tour is open it takes Esc for itself (see PretextTour).
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Esc first closes the welcome card, then the reader.
-      if (!welcomeSeen) setWelcomeSeen(true);
-      else onClose();
+      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, welcomeSeen, setWelcomeSeen]);
+  }, [onClose]);
   function changeColumnCount(nextCount: ColumnCount) {
     rememberReadingPosition();
     // Words move from where they are now to their places in the new columns.
@@ -230,6 +254,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   }
   return (
     <div
+      ref={rootRef}
       role="dialog"
       aria-modal="true"
       style={{
@@ -314,13 +339,21 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           }
         `}
       </style>
-      {!welcomeSeen && <WelcomeCard isDark={isDark} onClose={() => setWelcomeSeen(true)} />}
+      {tourSteps && (
+        <PretextTour
+          root={rootRef.current}
+          isDark={isDark}
+          steps={tourSteps}
+          onClose={() => setTourSteps(null)}
+        />
+      )}
       {/* The theme switch stays where the article has it (top right), outside the toolbar. */}
       <button
         type="button"
         onClick={nextTheme}
         aria-label="Toggle theme between light and dark mode"
         title="Toggle theme between light and dark mode"
+        {...{ [TOUR_ATTRIBUTE]: 'theme' }}
         style={{
           position: 'absolute',
           top: 16,
@@ -369,6 +402,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
         effectMode={activeMode}
         effectsAvailable={!reduceMotion}
         onEffectModeChange={setEffectMode}
+        onTour={() => startTour()}
         onClose={onClose}
       />
 
@@ -431,11 +465,11 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               position: 'relative',
               cursor: activeMode === 'explode' ? 'crosshair' : undefined,
 
-              // Side insets are margins, not padding: the text layers are
-              // absolutely positioned, and absolute children ignore padding, which
-              // had shifted all text 40px left of centre.
-              padding: `${OVERLAY_PADDING}px 0`,
-              margin: `0 ${OVERLAY_PADDING}px`,
+              // Insets are margins, not padding: the text layers are absolutely
+              // positioned, and absolute children ignore padding. Padding had
+              // shifted all text 40px left of centre and put the first line
+              // flush against the banner.
+              margin: OVERLAY_PADDING,
               minHeight: contentHeight,
               boxSizing: 'border-box',
             }}
@@ -458,6 +492,25 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   left: 0,
                   width: containerWidth,
                   borderTop: index ? '1px solid rgba(148,163,184,0.28)' : undefined,
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+            {panels.map((panel, index) => (
+              // The abstract's shaded box, behind its words, as on the article page.
+              <div
+                key={index}
+                className="pretext-panel"
+                data-pretext-panel={panel.panel}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: panel.x,
+                  top: panel.top,
+                  width: panel.width,
+                  height: panel.bottom - panel.top,
+                  borderRadius: 4,
+                  background: isDark ? DARK.panel : '#f8fafc',
                   pointerEvents: 'none',
                 }}
               />

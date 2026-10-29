@@ -9,7 +9,7 @@ import {
 } from '../figure-layout.js';
 import { useImageRatios } from '../hooks.js';
 import { inlineMeasurementKey, styleForBlock } from '../layout/measurements.js';
-import type { ContentBlock, InlineMetrics, LayoutResult } from '../layout/types.js';
+import type { ContentBlock, InlineMetrics, LayoutResult, PanelRect } from '../layout/types.js';
 import type { FigureInfo, FigureLayoutState } from '../model.js';
 import { readingSettingsKey, readingTextStyle, type ReadingSettings } from '../reading-settings.js';
 
@@ -21,6 +21,7 @@ const EMPTY_LAYOUT: LayoutResult = {
   contentBottom: 0,
 };
 const EMPTY_HEIGHTS: Record<number, number> = {};
+const EMPTY_PANELS: PanelRect[] = [];
 
 /** Aspect ratios for notebook-output cards before their output mounts, taken
  * from the same figures already rendered in the article behind the overlay, so
@@ -228,6 +229,7 @@ export function usePretextLayout({
     captionHeights,
   ]);
   const { spans, richBlocks, headingAnchors } = layout;
+  const panels = layout.panels ?? EMPTY_PANELS;
 
   const updateRichBlockHeight = React.useCallback(
     (index: number, height: number) => {
@@ -279,6 +281,7 @@ export function usePretextLayout({
     spans,
     richBlocks,
     headingAnchors,
+    panels,
     figPositions,
     basePositions,
     captionModes,

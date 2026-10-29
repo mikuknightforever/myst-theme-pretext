@@ -29,6 +29,10 @@ export function appendLayout(target: LayoutResult, source: LayoutResult, xOffset
     target.figureAnchors.push(anchor);
   }
   for (const heading of source.headingAnchors) target.headingAnchors.push(heading);
+  for (const panel of source.panels ?? []) {
+    if (xOffset) panel.x += xOffset;
+    (target.panels ??= []).push(panel);
+  }
   target.contentBottom = Math.max(target.contentBottom, source.contentBottom);
 }
 

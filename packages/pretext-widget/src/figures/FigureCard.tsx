@@ -168,6 +168,7 @@ export function FigureCard({
   return (
     <div
       className="pretext-figure-card"
+      data-pretext-tour="figure"
       id={fig.mdastNode?.html_id ?? fig.mdastNode?.identifier}
       data-pretext-figure-index={index}
       data-active={active ? '' : undefined}

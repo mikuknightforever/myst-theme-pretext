@@ -40,6 +40,15 @@ function richNodes(result: ReturnType<typeof collectArticle>) {
 }
 
 describe('automatic article content detection', () => {
+  test('drops a hard break between blocks and keeps an aside as its own block', () => {
+    const note = { type: 'aside', children: [paragraph(text('A side note'))] };
+    const result = collectArticle(
+      article({ type: 'heading', depth: 2, children: [text('Methods')] }, { type: 'break' }, note, paragraph(text('Body'))),
+    );
+    expect(result.blocks.map((block) => block.type)).toEqual(['heading', 'richBlock', 'paragraph']);
+    expect(richNodes(result)).toEqual([note]);
+  });
+
   test('recognizes unmarked figures without changing the source tree or caption numbering', () => {
     const fig = figure('unmarked', 'A.2');
     const source = deepFreeze(article(paragraph(text('Before')), fig, paragraph(text('After'))));
@@ -152,7 +161,7 @@ describe('automatic article content detection', () => {
     );
   });
 
-  test('retains ordered/nested/task/multi-paragraph lists and images in lists', () => {
+  test('draws ordered, nested, task and multi-paragraph lists as text, keeping images', () => {
     const item = (children: any[]) => ({ type: 'listItem', children });
     const lists = [
       { type: 'list', ordered: true, start: 4, children: [item([paragraph(text('Fourth'))])] },
@@ -170,8 +179,44 @@ describe('automatic article content detection', () => {
       { type: 'list', children: [item([paragraph(image('inside'))])] },
     ];
     const result = collectArticle(article(...lists));
-    expect(richNodes(result)).toEqual(lists);
+    const items = result.blocks
+      .filter((block) => block.type === 'listItem')
+      .map((block) => ({
+        marker: block.type === 'listItem' && block.marker,
+        bullet: block.type === 'listItem' && block.bullet,
+        depth: block.type === 'listItem' && block.depth,
+        text: block.type === 'listItem' && block.words.map((w) => w.text).join(' '),
+      }));
+    expect(items).toEqual([
+      { marker: '4.', bullet: true, depth: 0, text: 'Fourth' },
+      { marker: '•', bullet: true, depth: 0, text: 'Outer' },
+      { marker: '•', bullet: true, depth: 1, text: 'Inner' },
+      { marker: '☑', bullet: true, depth: 0, text: 'Task' },
+      { marker: '•', bullet: true, depth: 0, text: 'First' },
+      // A later paragraph of the same item lines up past the marker.
+      { marker: '•', bullet: false, depth: 0, text: 'Second' },
+    ]);
+    // A paragraph holding an image still renders natively, in its place.
+    expect(richNodes(result)).toEqual([paragraph(image('inside'))]);
     expect(result.figures).toHaveLength(0);
+  });
+
+  test('inline content written straight into a list item is drawn as text', () => {
+    const result = collectArticle(
+      article({
+        type: 'list',
+        children: [
+          {
+            type: 'listItem',
+            children: [{ type: 'superscript', children: [text('1')] }, paragraph(text('Note'))],
+          },
+          { type: 'listItem', children: [text('Tight')] },
+        ],
+      }),
+    );
+    expect(
+      result.blocks.map((block) => block.type === 'listItem' && block.words.map((w) => w.text)),
+    ).toEqual([['1', 'Note'], ['Tight']]);
   });
 
   test('keeps simple bullets on the existing text reflow path', () => {

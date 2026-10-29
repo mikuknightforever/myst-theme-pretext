@@ -6,6 +6,7 @@ import type { ReadingSettings } from '../reading-settings.js';
 import { GLASS_FONT, glassButtonCss, glassTheme, type GlassTheme } from './glass.js';
 import { ReadingSettingsPanel } from './ReadingSettingsPanel.js';
 import { LEAF_SHAPES } from '../effects/leaf-shapes.js';
+import { TOUR_ATTRIBUTE } from './PretextTour.js';
 
 /** Space the floating toolbar needs at the bottom, including its offset. */
 export const TOOLBAR_CLEARANCE = 88;
@@ -27,6 +28,7 @@ function IconButton({
   disabled = false,
   label,
   tip,
+  tourId,
   onClick,
   children,
 }: {
@@ -36,6 +38,8 @@ function IconButton({
   disabled?: boolean;
   label: string;
   tip?: TipHandlers;
+  /** Marks the button for the guided tour (see PretextTour). */
+  tourId?: string;
   onClick?: () => void;
   children: React.ReactNode;
 }) {
@@ -47,6 +51,7 @@ function IconButton({
       aria-label={label}
       aria-pressed={pressed}
       aria-expanded={expanded}
+      {...(tourId ? { [TOUR_ATTRIBUTE]: tourId } : {})}
       {...tip}
       disabled={disabled}
       onClick={onClick}
@@ -198,6 +203,7 @@ export function PretextToolbar({
   effectMode = 'none',
   effectsAvailable = true,
   onEffectModeChange,
+  onTour,
   onClose,
 }: {
   /** Number of figure cards (kept for callers; not shown). */
@@ -217,6 +223,8 @@ export function PretextToolbar({
   /** False when the reader's system asks for reduced motion. */
   effectsAvailable?: boolean;
   onEffectModeChange?: (mode: EffectMode) => void;
+  /** Starts the guided tour of these controls. */
+  onTour?: () => void;
   onClose: () => void;
 }) {
   const theme = glassTheme(isDark);
@@ -374,6 +382,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label={`Columns: ${columnCount}`}
+          tourId="columns"
           tip={tipFor(`Columns (${columnCount})`)}
           expanded={popover === 'columns'}
           onClick={() => toggle('columns')}
@@ -383,6 +392,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label="Justify text"
+          tourId="justify"
           tip={tipFor(justified ? 'Justified text (click for left aligned)' : 'Justify text')}
           pressed={justified}
           onClick={() => onReadingSettingsChange({ textAlign: justified ? 'left' : 'justify' })}
@@ -392,6 +402,7 @@ export function PretextToolbar({
         <IconButton
           theme={theme}
           label="Reading settings"
+          tourId="settings"
           tip={tipFor('Text size and spacing')}
           expanded={popover === 'settings'}
           onClick={() => toggle('settings')}
@@ -403,7 +414,12 @@ export function PretextToolbar({
         {onEffectModeChange && (
           <>
             <Divider theme={theme} />
-            <span role="radiogroup" aria-label="Text effect" style={{ display: 'flex', gap: 2 }}>
+            <span
+              role="radiogroup"
+              aria-label="Text effect"
+              {...{ [TOUR_ATTRIBUTE]: 'effects' }}
+              style={{ display: 'flex', gap: 2 }}
+            >
               {EFFECTS.map(({ mode, label }) => (
                 <button
                   key={mode}
@@ -443,6 +459,7 @@ export function PretextToolbar({
           <IconButton
             theme={theme}
             label={outlineHidden ? 'Show "On this page"' : 'Hide "On this page"'}
+            tourId="outline"
             tip={tipFor(outlineHidden ? 'Show "On this page"' : 'Hide "On this page"')}
             pressed={!outlineHidden}
             onClick={onOutlineToggle}
@@ -450,11 +467,25 @@ export function PretextToolbar({
             {Icon.outline}
           </IconButton>
         )}
-
+        {onTour && (
+          <IconButton
+            theme={theme}
+            label="Tour of the reader"
+            tip={tipFor('Tour of the reader')}
+            tourId="help"
+            onClick={() => {
+              setPopover(null);
+              onTour();
+            }}
+          >
+            <span style={{ fontWeight: 700, fontSize: 15 }}>?</span>
+          </IconButton>
+        )}
         <button
           type="button"
           className="pretext-glass-btn"
           aria-label="Exit Pretext Mode"
+          {...{ [TOUR_ATTRIBUTE]: 'exit' }}
           {...tipFor('Leave the reader (Esc)')}
           onClick={onClose}
           style={{

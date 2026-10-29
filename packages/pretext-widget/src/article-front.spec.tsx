@@ -69,6 +69,30 @@ describe('article front matter in Pretext', () => {
     expect(withFrontmatterAbstract(plain, undefined)).toBe(plain);
   });
 
+  test('the abstract part gets a heading, a box, and the keywords after it', () => {
+    const root = {
+      type: 'root',
+      children: [
+        { type: 'block', data: { part: 'abstract' }, children: [paragraph('Summary')] },
+        heading('Introduction', '1'),
+        paragraph('Body'),
+      ],
+    };
+    const merged = withFrontmatterAbstract(root, { keywords: ['MRI', 'Myelin'] });
+    const blocks = collectArticle(merged).blocks.map((block) => ({
+      type: block.type,
+      panel: 'panel' in block ? block.panel : undefined,
+      text: 'words' in block ? block.words.map((w) => w.text).join(' ') : '',
+    }));
+    expect(blocks).toEqual([
+      { type: 'heading', panel: undefined, text: 'Abstract' },
+      { type: 'paragraph', panel: 'abstract', text: 'Summary' },
+      { type: 'paragraph', panel: undefined, text: 'Keywords: MRI, Myelin' },
+      { type: 'heading', panel: undefined, text: '1 Introduction' },
+      { type: 'paragraph', panel: undefined, text: 'Body' },
+    ]);
+  });
+
   test('a header passed by the theme is available to the Pretext session', () => {
     function Probe() {
       return <>{usePretextHeader()}</>;

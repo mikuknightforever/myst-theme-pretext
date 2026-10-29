@@ -3,7 +3,6 @@ import {
   childrenOf,
   figureLabel,
   isInteractiveOutputFigure,
-  isSimpleList,
   isStaticFigure,
 } from '../content-detection.js';
 import type { FigureInfo } from '../model.js';
@@ -14,29 +13,77 @@ export function isAbstractHeading(node: any): boolean {
   return node?.type === 'heading' && semanticText(node).trim().toLowerCase() === 'abstract';
 }
 
-function containsAbstractHeading(node: any): boolean {
-  return isAbstractHeading(node) || childrenOf(node).some(containsAbstractHeading);
+/** The abstract as MyST marks it in the page body: a block with part: abstract. */
+export function isAbstractPart(node: any): boolean {
+  return node?.type === 'block' && node.data?.part === 'abstract';
 }
 
-/** Articles whose abstract lives only in front matter (`parts.abstract`) would
- * otherwise lose it in Pretext; put it first in the flow under its own heading.
+function containsAbstract(node: any): boolean {
+  return isAbstractHeading(node) || isAbstractPart(node) || childrenOf(node).some(containsAbstract);
+}
+
+function keywordsParagraph(keywords: unknown): any | undefined {
+  if (!Array.isArray(keywords) || keywords.length === 0) return undefined;
+  return {
+    type: 'paragraph',
+    children: [
+      { type: 'strong', children: [{ type: 'text', value: 'Keywords:' }] },
+      { type: 'text', value: ` ${keywords.join(', ')}` },
+    ],
+  };
+}
+
+/** Show the abstract as the article page does: under an "Abstract" heading, in
+ * a shaded box, followed by the keywords. Articles whose abstract lives only in
+ * front matter (`parts.abstract`) would otherwise lose it, so it is put first.
  * Returns the same tree when there is nothing to add; never mutates it. */
 export function withFrontmatterAbstract(mdast: any, frontmatter: any): any {
+  if (!mdast) return mdast;
+  const keywords = keywordsParagraph(frontmatter?.keywords);
   const abstract = frontmatter?.parts?.abstract?.mdast;
-  if (!mdast || !abstract || containsAbstractHeading(mdast)) return mdast;
+  const top = childrenOf(mdast);
+  const partIndex = top.findIndex(isAbstractPart);
+  if (partIndex >= 0) {
+    if (!keywords) return mdast;
+    const children = [...top];
+    children.splice(partIndex + 1, 0, keywords);
+    return { ...mdast, children };
+  }
+  if (!abstract || containsAbstract(mdast)) return mdast;
   return {
     ...mdast,
     children: [
       {
-        type: 'heading',
-        depth: 2,
-        identifier: 'abstract',
-        children: [{ type: 'text', value: 'Abstract' }],
+        type: 'block',
+        data: { part: 'abstract' },
+        children: abstract.type === 'root' ? childrenOf(abstract) : [abstract],
       },
-      ...(abstract.type === 'root' ? childrenOf(abstract) : [abstract]),
-      ...childrenOf(mdast),
+      ...(keywords ? [keywords] : []),
+      ...top,
     ],
   };
+}
+
+/** Inline content written straight into a list item (a "tight" list) joins the
+ * paragraph that follows it, or becomes one, so it is drawn as text too. */
+function listItemParts(item: any): any[] {
+  const parts: any[] = [];
+  let run: any[] = [];
+  for (const child of childrenOf(item)) {
+    if (canExtractInline(child) || child.type === 'image' || child.type === 'break') {
+      run.push(child);
+      continue;
+    }
+    if (run.length && child.type === 'paragraph') {
+      parts.push({ ...child, children: [...run, ...childrenOf(child)] });
+    } else {
+      if (run.length) parts.push({ type: 'paragraph', children: run });
+      parts.push(child);
+    }
+    run = [];
+  }
+  if (run.length) parts.push({ type: 'paragraph', children: run });
+  return parts;
 }
 
 function slugifyHeading(value: string): string {
@@ -67,6 +114,8 @@ export function collectArticle(
   const figures: FigureInfo[] = [];
   let richBlockIdx = 0;
   const headingIds = new Map<string, number>();
+  /** Set while walking the abstract, whose text is drawn in a shaded box. */
+  let panel: 'abstract' | undefined;
   const pushRichBlock = (node: any, estimatedHeight: number) => {
     results.push({
       type: 'richBlock',
@@ -78,6 +127,9 @@ export function collectArticle(
   function walk(node: any) {
     if (!node) return;
     if (['pretext-widget', 'comment', 'mystComment', 'definition'].includes(node.type)) return;
+    // A hard line break between blocks (a paragraph's own breaks stay in it)
+    // only adds a blank line in the article; in columns it is an empty gap.
+    if (node.type === 'break') return;
     if (isStaticFigure(node, options.draggableSelector)) {
       results.push({ type: 'figureAnchor', figureIndex: figures.length });
       figures.push({ mdastNode: node, label: figureLabel(node), imageUrl: findImageUrl(node) });
@@ -99,7 +151,22 @@ export function collectArticle(
         return;
       }
       const words = (node.children ?? []).flatMap((c: any) => extractWords(c));
-      if (words.length > 0) results.push({ type: 'paragraph', words });
+      if (words.length > 0) results.push({ type: 'paragraph', words, ...(panel && { panel }) });
+      return;
+    }
+    if (isAbstractPart(node)) {
+      if (!childrenOf(node).some(isAbstractHeading)) {
+        results.push({
+          type: 'heading',
+          depth: 2,
+          words: [{ text: 'Abstract', bold: true, italic: false, code: false }],
+          headingId: 'abstract',
+          headingTitle: 'Abstract',
+        });
+      }
+      panel = 'abstract';
+      childrenOf(node).forEach(walk);
+      panel = undefined;
       return;
     }
     if (node.type === 'heading') {
@@ -144,24 +211,12 @@ export function collectArticle(
       }
       return;
     }
-    if (node.type === 'list' && !isSimpleList(node)) {
-      // Preserve numbering, nesting, task checkboxes, images and multiple
-      // paragraphs rather than flattening all of them into one bullet.
-      pushRichBlock(node, Math.max(100, childrenOf(node).length * 48));
+    if (node.type === 'list') {
+      walkList(node, 0);
       return;
     }
     if (node.type === 'listItem') {
-      if (!isSimpleList({ children: [node] })) {
-        pushRichBlock(node, 100);
-        return;
-      }
-      const words = (node.children ?? []).flatMap((c: any) => {
-        if (c.type === 'paragraph') {
-          return (c.children ?? []).flatMap((cc: any) => extractWords(cc));
-        }
-        return extractWords(c);
-      });
-      if (words.length > 0) results.push({ type: 'listItem', bullet: true, words });
+      walkList({ type: 'list', children: [node] }, 0);
       return;
     }
     if (node.type === 'math') {
@@ -228,7 +283,7 @@ export function collectArticle(
       if (words.length > 0) results.push({ type: 'paragraph', words });
       return;
     }
-    if (['root', 'block', 'section', 'include', 'admonition', 'list'].includes(node.type)) {
+    if (['root', 'block', 'section', 'include', 'admonition'].includes(node.type)) {
       childrenOf(node).forEach(walk);
       return;
     }
@@ -236,6 +291,45 @@ export function collectArticle(
     // widgets, unresolved directives, etc.). Never silently skip unknown leaves.
     pushRichBlock(node, 100);
   }
+  /** Every list item is drawn as text (so the reader's effects reach it): its
+   * marker, numbering and nesting are kept, later paragraphs of an item line up
+   * past the marker, and anything that is not text (code, images, tables) is
+   * placed in order between them as usual. */
+  function walkList(list: any, depth: number) {
+    const start = typeof list.start === 'number' ? list.start : 1;
+    childrenOf(list).forEach((item, i) => {
+      if (item.type !== 'listItem') {
+        walk(item);
+        return;
+      }
+      const marker =
+        item.checked != null ? (item.checked ? '☑' : '☐') : list.ordered ? `${start + i}.` : '•';
+      let first = true;
+      for (const part of listItemParts(item)) {
+        if (part.type === 'list') {
+          walkList(part, depth + 1);
+        } else if (part.type === 'paragraph' && childrenOf(part).every(canExtractInline)) {
+          const words = childrenOf(part).flatMap((c: any) => extractWords(c));
+          if (words.length === 0) continue;
+          results.push({
+            type: 'listItem',
+            bullet: first,
+            marker,
+            depth,
+            words,
+            ...(panel && { panel }),
+          });
+        } else if (part.type === 'paragraph') {
+          // An image in a list belongs to the list, not a movable figure card.
+          pushRichBlock(part, 100);
+        } else {
+          walk(part);
+        }
+        first = false;
+      }
+    });
+  }
+
   walk(mdast);
   return { blocks: results, figures };
 }

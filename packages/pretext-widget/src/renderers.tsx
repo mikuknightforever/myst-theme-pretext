@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  LazyLoadingProvider,
   useReferences,
   useThemeSwitcher,
   useSiteManifest,
@@ -98,7 +99,11 @@ function PretextSession({
       />
       {open && typeof document !== 'undefined'
         ? createPortal(
-            <PretextOverlay blocks={blocks} figures={figures} header={header} onClose={onClose} />,
+            // Pretext lays out every figure at once from its real size, so its
+            // figures load immediately rather than when scrolled near.
+            <LazyLoadingProvider lazy={false}>
+              <PretextOverlay blocks={blocks} figures={figures} header={header} onClose={onClose} />
+            </LazyLoadingProvider>,
             document.body,
           )
         : null}

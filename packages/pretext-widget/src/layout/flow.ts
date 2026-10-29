@@ -1,5 +1,6 @@
 import { INLINE_SCROLLBAR_HEIGHT } from './types.js';
 import type {
+  PanelRect,
   ContentBlock,
   ObstacleRect,
   TextStyle,
@@ -22,6 +23,12 @@ function measuringContext(): CanvasRenderingContext2D | null {
 }
 
 const WORD_GAP = 6;
+/** Text inside a panel (the abstract) is inset from the shaded box. */
+const PANEL_INSET_X = 20;
+const PANEL_PAD_Y = 18;
+/** Extra indent per nesting level of a list. */
+const LIST_NEST = 24;
+const LIST_ITEM_GAP = 6;
 /** A justified gap may grow to at most 5 normal spaces; only lines that would
  * need more (one or two words) stay left aligned. */
 const JUSTIFY_MAX_EXTRA = WORD_GAP * 4;
@@ -210,6 +217,17 @@ export function layoutBlocks(
   const richBlocks: PlacedRichBlock[] = [];
   const figureAnchors: FigureAnchor[] = [];
   const headingAnchors: HeadingAnchor[] = [];
+  const panels: PanelRect[] = [];
+  let openPanel: PanelRect | null = null;
+  let panelTextBottom = startY;
+  // The box ends a little below its last line, and the next block keeps its
+  // usual gap below the box.
+  const closePanel = () => {
+    if (!openPanel) return;
+    openPanel.bottom = panelTextBottom + PANEL_PAD_Y;
+    y = openPanel.bottom + style.paragraphGap;
+    openPanel = null;
+  };
   let y = startY;
   let richIdx = 0;
   let previousFigureAnchorY = Number.NEGATIVE_INFINITY;
@@ -225,7 +243,17 @@ export function layoutBlocks(
     }
   };
 
-  for (const block of blocks) {
+  for (const [blockIndex, block] of blocks.entries()) {
+    const blockPanel =
+      block.type === 'paragraph' || block.type === 'listItem' ? block.panel : undefined;
+    if (openPanel && openPanel.panel !== blockPanel) closePanel();
+    if (blockPanel && !openPanel) {
+      openPanel = { panel: blockPanel, x: 0, width: containerWidth, top: y, bottom: y };
+      panels.push(openPanel);
+      y += PANEL_PAD_Y;
+    }
+    const lineLeft = blockPanel ? PANEL_INSET_X : 0;
+    const lineRight = blockPanel ? containerWidth - PANEL_INSET_X : containerWidth;
     // ── Figure anchors (zero-height, record y position) ──────────────────────
     if (block.type === 'figureAnchor') {
       const inlineFigure = obstacles.find(
@@ -293,11 +321,18 @@ export function layoutBlocks(
       });
     }
 
-    // Prepend bullet for list items
+    // Prepend the marker for list items. Every line after it, and every later
+    // paragraph of the item, starts past the marker (a hanging indent).
     const isListItem = block.type === 'listItem' && block.bullet;
-    const words: StyledWord[] = isListItem
-      ? [{ text: '•', bold: false, italic: false, code: false, spaceAfter: true }, ...block.words]
-      : block.words;
+    const marker: StyledWord | null =
+      block.type === 'listItem'
+        ? { text: block.marker ?? '•', bold: false, italic: false, code: false, spaceAfter: true }
+        : null;
+    const listIndent = block.type === 'listItem' ? (block.depth ?? 0) * LIST_NEST : 0;
+    const hang = marker
+      ? measureCached(marker, blockStyle, ctx, blockFont) + WORD_GAP
+      : 0;
+    const words: StyledWord[] = isListItem ? [marker!, ...block.words] : block.words;
 
     // Justified paragraphs with full-width lines get paragraph-wide breaks.
     let forcedBreaks: Set<number> | null = null;
@@ -307,13 +342,18 @@ export function layoutBlocks(
       blockObstacles.length === 0 &&
       words.length > 1
     ) {
-      const key = `${containerWidth}|${blockStyle.fontFamily}|${blockStyle.fontSize}|${blockStyle.fontWeight}`;
+      const key = `${lineRight - lineLeft}|${blockStyle.fontFamily}|${blockStyle.fontSize}|${blockStyle.fontWeight}`;
       const cached = words.slice(1).map((word) => justifiedBreaks.get(word)?.get(key));
       if (cached.every((value) => value !== undefined)) {
         forcedBreaks = new Set(cached.flatMap((value, i) => (value ? [i + 1] : [])));
       } else {
         const widths = words.map((word) => measureCached(word, blockStyle, ctx, blockFont));
-        forcedBreaks = chooseJustifiedBreaks(words, widths, containerWidth, !block.continues);
+        forcedBreaks = chooseJustifiedBreaks(
+          words,
+          widths,
+          lineRight - lineLeft,
+          !block.continues,
+        );
         words.forEach((word, i) => {
           if (i === 0) return;
           let entry = justifiedBreaks.get(word);
@@ -336,7 +376,7 @@ export function layoutBlocks(
         wi = wiAtLineStart;
         spans.length = spanStart;
         placedSegments = [];
-        const segments = getLineSegments(y, y + lineHeight, blockObstacles, 0, containerWidth);
+        const segments = getLineSegments(y, y + lineHeight, blockObstacles, lineLeft, lineRight);
         if (segments.length === 0) {
           y = Math.max(
             y + lineHeight,
@@ -355,8 +395,9 @@ export function layoutBlocks(
             end: segEnd,
             widths: [],
           };
-          // Indent list items past their bullet on continuation lines
-          if (isListItem && wi > 0 && segStart === 0) x += 18;
+          if (marker && segStart === lineLeft) {
+            x += listIndent + (isListItem && wi === 0 ? 0 : hang);
+          }
           while (wi < words.length) {
             if (placedInSegment && forcedBreaks?.has(wi)) break;
             const word = words[wi];
@@ -450,15 +491,28 @@ export function layoutBlocks(
       }
       y += lineHeight;
     }
+    if (openPanel) panelTextBottom = y;
 
-    // Vertical gap after each block
+    // Vertical gap after each block. Items of a list sit closer together than
+    // paragraphs, as on the article page.
+    const next = blocks[blockIndex + 1];
     y +=
       block.type === 'heading'
         ? Math.round(blockStyle.lineHeight * 0.3)
         : block.continues
           ? 0
-          : style.paragraphGap;
+          : next?.type === 'listItem' && next.bullet && block.type === 'listItem'
+            ? LIST_ITEM_GAP
+            : style.paragraphGap;
   }
 
-  return { spans, richBlocks, figureAnchors, headingAnchors, contentBottom: y };
+  closePanel();
+  return {
+    spans,
+    richBlocks,
+    figureAnchors,
+    headingAnchors,
+    ...(panels.length && { panels }),
+    contentBottom: y,
+  };
 }

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { MyST } from 'myst-to-react';
-import { useNodeRenderers } from '@myst-theme/providers';
+import { useNodeRenderers, useThemeSwitcher } from '@myst-theme/providers';
+import { DARK } from '../components/palette.js';
 import { nativeBlockNode, simpleIframe, unsupportedTypes } from '../content-detection.js';
 import type { PlacedRichBlock, TextStyle } from '../layout.js';
 
@@ -85,6 +86,29 @@ const MemoNativeBlock = React.memo(function MemoNativeBlock({ node }: { node: an
   );
 });
 
+/** A side note. The theme's aside is built to sit in the page margin (on wide
+ * screens it collapses to no height and is moved out of the text), and
+ * Pretext's columns have no margin, so the note is drawn in the flow instead:
+ * a slim rule on the left, smaller and quieter text. */
+export const PretextAside = React.memo(function PretextAside({ node }: { node: any }) {
+  const { isDark } = useThemeSwitcher();
+  return (
+    <div
+      className="pretext-aside"
+      role="note"
+      style={{
+        borderLeft: `3px solid ${isDark ? '#57534e' : '#cbd5e1'}`,
+        padding: '6px 0 6px 14px',
+        fontSize: '0.88em',
+        lineHeight: 1.55,
+        color: isDark ? DARK.muted : '#475569',
+      }}
+    >
+      <MyST ast={node.children ?? []} />
+    </div>
+  );
+});
+
 const MemoIframe = React.memo(function MemoIframe({
   src,
   iframeHeight,
@@ -164,6 +188,9 @@ export function RichBlockLayer({
           margin: 0 .5em 0 0;
         }
         .pretext-rich-block .task-list-item > p { display: inline; }
+        .pretext-aside > :first-child { margin-top: 0; }
+        .pretext-aside > :last-child { margin-bottom: 0; }
+        .pretext-aside p { margin-block: .3em; }
       `}</style>
       {richBlocks.map((block, i) => {
         const iframeNode = simpleIframe(block.node);
@@ -186,6 +213,14 @@ export function RichBlockLayer({
                 captionChildren={captionNode?.children ?? []}
                 title={iframeNode.title ?? 'Interactive article content'}
               />
+            </MeasuredRichBlock>
+          );
+        }
+
+        if (block.node?.type === 'aside') {
+          return (
+            <MeasuredRichBlock key={i} block={block} onHeightChange={onHeightChange}>
+              <PretextAside node={block.node} />
             </MeasuredRichBlock>
           );
         }

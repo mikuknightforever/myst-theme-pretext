@@ -5,6 +5,8 @@ import * as React from 'react';
 export type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export const WELCOME_SEEN_KEY = 'myst-pretext-welcome-seen-v1';
+/** Set once the reader has been pointed at the Pretext button on the article page. */
+export const LAUNCHER_HINT_SEEN_KEY = 'myst-pretext-launcher-hint-seen-v1';
 
 export function loadStoredFlag(storage: PreferenceStorage | undefined, key: string): boolean {
   try {

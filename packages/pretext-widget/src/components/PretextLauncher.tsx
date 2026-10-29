@@ -2,6 +2,67 @@ import * as React from 'react';
 import { DARK } from './palette.js';
 import { createPortal } from 'react-dom';
 import { DEFAULT_TEXT_STYLE } from '../layout.js';
+import {
+  browserStorage,
+  LAUNCHER_HINT_SEEN_KEY,
+  loadStoredFlag,
+  saveStoredFlag,
+  WELCOME_SEEN_KEY,
+} from '../preferences.js';
+import { PretextTour, TOUR_ATTRIBUTE, tourRequested, type TourStep } from './PretextTour.js';
+
+const LAUNCHER_STEP: TourStep = {
+  target: 'launcher',
+  title: 'Text that breaks its mould',
+  body: 'Rearrange the layout on the fly, your way.',
+  credit: { before: 'Powered by', label: 'Pretext', href: 'https://github.com/chenglou/pretext' },
+};
+const LAUNCHER_STEPS = [LAUNCHER_STEP];
+
+/** Whether to point the reader at the Pretext button: on a first visit (until
+ * they open the reader or dismiss the hint), and always for a ?tour link. */
+export function shouldShowLauncherHint(
+  storage: Parameters<typeof loadStoredFlag>[0],
+  search: string,
+): boolean {
+  if (tourRequested(search)) return true;
+  return !loadStoredFlag(storage, LAUNCHER_HINT_SEEN_KEY) && !loadStoredFlag(storage, WELCOME_SEEN_KEY);
+}
+
+/** How long the article page settles before the hint appears. */
+const HINT_DELAY_MS = 1200;
+
+/** A spotlight on the Pretext button, over the article page. */
+function LauncherHint({ isDark, onOpen }: { isDark: boolean; onOpen: () => void }) {
+  const [show, setShow] = React.useState(false);
+  React.useEffect(() => {
+    if (!shouldShowLauncherHint(browserStorage(), window.location.search)) return;
+    const timer = window.setTimeout(() => setShow(true), HINT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const dismiss = React.useCallback(() => {
+    saveStoredFlag(browserStorage(), LAUNCHER_HINT_SEEN_KEY, true);
+    setShow(false);
+  }, []);
+  if (!show) return null;
+  // On the body, so the theme header's stacking cannot trap the dimmed layer.
+  return createPortal(
+    <PretextTour
+      root={document.body}
+      isDark={isDark}
+      steps={LAUNCHER_STEPS}
+      doneLabel="Read in Pretext"
+      skipLabel="Not now"
+      onDone={() => {
+        dismiss();
+        onOpen();
+      }}
+      onClose={dismiss}
+      zIndex={2147483000}
+    />,
+    document.body,
+  );
+}
 
 /** A theme can place this element next to its own buttons (e.g. the theme
  * switcher); the icon launcher is drawn into it. */
@@ -38,6 +99,13 @@ function FlaskIcon() {
 /** Round icon button matching the theme switcher; no space taken in the article. */
 function IconLauncher({ isDark, onOpen }: { isDark: boolean; onOpen: () => void }) {
   const [slot, setSlot] = React.useState<HTMLElement | null | undefined>(undefined);
+  // Opening the reader, from the button or the hint, ends the hint for good.
+  const [hintDone, setHintDone] = React.useState(false);
+  const open = React.useCallback(() => {
+    saveStoredFlag(browserStorage(), LAUNCHER_HINT_SEEN_KEY, true);
+    setHintDone(true);
+    onOpen();
+  }, [onOpen]);
   React.useEffect(() => {
     setSlot(document.getElementById(PRETEXT_LAUNCHER_SLOT_ID));
   }, []);
@@ -46,10 +114,11 @@ function IconLauncher({ isDark, onOpen }: { isDark: boolean; onOpen: () => void 
   const button = (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={open}
       aria-label={label}
       title={label}
       data-pretext-entry="automatic"
+      {...{ [TOUR_ATTRIBUTE]: 'launcher' }}
       style={{
         width: 40,
         height: 40,
@@ -67,7 +136,12 @@ function IconLauncher({ isDark, onOpen }: { isDark: boolean; onOpen: () => void 
       <FlaskIcon />
     </button>
   );
-  return slot ? createPortal(button, slot) : button;
+  return (
+    <>
+      {slot ? createPortal(button, slot) : button}
+      {!hintDone && <LauncherHint isDark={isDark} onOpen={open} />}
+    </>
+  );
 }
 
 export function PretextLauncher({

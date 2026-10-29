@@ -51,7 +51,15 @@ export interface StyledWord {
 export type ContentBlock =
   | {
       type: 'paragraph' | 'listItem';
+      /** Draw the item's marker before its first line. Later paragraphs of the
+       * same item, and its column continuations, keep the marker's indent. */
       bullet?: boolean;
+      /** `•`, `3.`, or a checkbox; a bullet when absent. */
+      marker?: string;
+      /** Nesting level of the list item, 0 for a top-level list. */
+      depth?: number;
+      /** Drawn inside a shaded box, e.g. the abstract. */
+      panel?: 'abstract';
       words: StyledWord[];
       /** A column fragment, not the end of the source paragraph. */
       continues?: boolean;
@@ -85,6 +93,15 @@ export interface FigureAnchor {
   width: number;
 }
 
+/** The shaded box behind a run of panel blocks, such as the abstract. */
+export interface PanelRect {
+  panel: 'abstract';
+  x: number;
+  width: number;
+  top: number;
+  bottom: number;
+}
+
 /** A heading position used by Pretext Mode's document outline. */
 export interface HeadingAnchor {
   id: string;
@@ -99,6 +116,7 @@ export interface LayoutResult {
   richBlocks: PlacedRichBlock[];
   figureAnchors: FigureAnchor[];
   headingAnchors: HeadingAnchor[];
+  panels?: PanelRect[];
   /** Actual occupied extents of bounded, left-to-right reading groups. */
   columnBands?: {
     top: number;
