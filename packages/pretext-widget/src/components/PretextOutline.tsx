@@ -1,7 +1,10 @@
 import * as React from 'react';
 import { DARK } from './palette.js';
-import { contentScrollTop, scrollTopForContentY } from '../scroll-geometry.js';
+import { scrollTopForContentY } from '../scroll-geometry.js';
 import type { HeadingAnchor } from '../layout.js';
+import { useActiveHeading } from '../hooks/useActiveHeading.js';
+
+const outlineMarker = () => 120;
 
 export function PretextOutline({
   headings,
@@ -15,33 +18,7 @@ export function PretextOutline({
   contentRef?: React.RefObject<HTMLDivElement | null>;
   isDark: boolean;
 }) {
-  const [activeId, setActiveId] = React.useState(headings[0]?.id ?? '');
-
-  React.useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || headings.length === 0) return;
-    let rafId: number | null = null;
-    const update = () => {
-      rafId = null;
-      const marker = contentScrollTop(container, contentRef?.current) + 120;
-      let next = headings[0].id;
-      for (const heading of headings) {
-        if (heading.y > marker) break;
-        next = heading.id;
-      }
-      setActiveId((current) => (current === next ? current : next));
-    };
-    const onScroll = () => {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(update);
-    };
-    update();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', onScroll);
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, [headings, scrollContainerRef, contentRef]);
+  const activeId = useActiveHeading(headings, scrollContainerRef, contentRef, outlineMarker);
 
   if (headings.length === 0) return null;
   const minDepth = Math.min(...headings.map((heading) => heading.depth));

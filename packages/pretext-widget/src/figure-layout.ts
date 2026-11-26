@@ -11,6 +11,10 @@ import {
   FIGURE_MIN_H,
   FIGURE_MIN_W,
   FIGURE_WIDTH_DEFAULT,
+  COLUMN_MIN_WIDTH,
+  PIN_GAP,
+  PIN_MIN_WIDTH,
+  PIN_WIDTH_RATIO,
   PRETEXT_TEXT_STYLE,
 } from './config.js';
 import { getOpeningLayout } from './layout-cache.js';
@@ -137,22 +141,36 @@ export function getFigureDisplaySize(
   return { width, height };
 }
 
+/** Width of the lane a pinned figure occupies beside the text, or null when
+ * the reading area is too narrow to keep a readable column next to it. */
+export function pinnedLaneWidth(containerWidth: number): number | null {
+  const lane = Math.min(
+    Math.round(containerWidth * PIN_WIDTH_RATIO),
+    containerWidth - PIN_GAP - COLUMN_MIN_WIDTH,
+  );
+  return lane >= PIN_MIN_WIDTH ? lane : null;
+}
+
 export function toObstacleRects(
   positions: FigurePosition[],
   containerWidth: number,
 ): ObstacleRect[] {
-  return positions.map((position, figureIndex) => {
+  const rects: ObstacleRect[] = [];
+  positions.forEach((position, figureIndex) => {
+    // A pinned card lives in its own lane, outside the text's width.
+    if (position.pinned) return;
     const blocksFullLine =
       position.inline || position.width >= containerWidth * FIGURE_BLOCK_WIDTH_RATIO;
-    return {
+    rects.push({
       left: blocksFullLine ? 0 : position.x,
       top: position.y,
       right: blocksFullLine ? containerWidth : position.x + position.width,
       bottom: position.y + position.height,
       figureIndex,
       inline: position.inline,
-    };
+    });
   });
+  return rects;
 }
 
 /** Initial (inline) figure positions, and the layout pass they were found with. */
@@ -237,7 +255,7 @@ export function layoutWithFigures(
   opening?: LayoutResult,
 ) {
   const layout =
-    opening && positions.every((position) => position.inline)
+    opening && positions.every((position) => position.inline || position.pinned)
       ? opening
       : layoutBlocksInColumns(
           blocks,

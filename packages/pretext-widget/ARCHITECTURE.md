@@ -20,7 +20,15 @@ installer. Keep its source Markdown and resolved AST unchanged.
 6. `hooks/usePretextLayout.ts` owns measured sizes and derived layout state.
    `useFigureInteractions.ts` owns pointer gestures; `useReadingNavigation.ts`
    owns reading-position restoration and local reference navigation.
-7. `components/PretextOverlay.tsx` composes the UI. `layers/` and `figures/` render
+7. `figure-regions.ts` parses region annotations (YAML code blocks) and selects
+   the regions for the section being read; `content/article.ts` attaches them to
+   figures. `useActiveHeading.ts` reports the heading at a reading marker (the
+   outline and figure focus share it). A pinned figure is removed from the flow
+   (`usePretextLayout` drops its anchor and lays the text out at the reduced
+   width); its card is sticky in a lane the overlay renders beside the text.
+   `figures/FigureRegions.tsx` draws highlights; `figures/RegionZoom.tsx` the
+   enlarged view.
+8. `components/PretextOverlay.tsx` composes the UI. `layers/` and `figures/` render
    and report measurements; they do not choose where columns break.
 
 `layout.ts` and `column-layout.ts` remain compatibility facades. Existing imports
