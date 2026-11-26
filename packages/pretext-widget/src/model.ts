@@ -1,4 +1,5 @@
 import type { ColumnCount } from './column-layout.js';
+import type { FigureRegion } from './figure-regions.js';
 
 export interface FigureInfo {
   mdastNode: any;
@@ -6,6 +7,8 @@ export interface FigureInfo {
   imageUrl: string | null;
   /** A single notebook output: dragged by its header and scaled to fit. */
   interactive?: boolean;
+  /** Parts of the figure linked to the sections that describe them. */
+  regions?: FigureRegion[];
 }
 
 export interface FigurePosition {
@@ -14,6 +17,8 @@ export interface FigurePosition {
   width: number;
   height: number;
   inline: boolean;
+  /** Pinned beside the text: out of the flow, in its own lane. */
+  pinned?: boolean;
 }
 
 export interface FigureLayoutState {

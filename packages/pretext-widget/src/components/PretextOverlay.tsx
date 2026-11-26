@@ -2,8 +2,18 @@ import * as React from 'react';
 import { DARK } from './palette.js';
 import { useThemeSwitcher } from '@myst-theme/providers';
 import type { ColumnCount } from '../column-layout.js';
-import { COLUMN_GAP, COLUMN_MIN_WIDTH, COLUMN_PAGE_GAP, OVERLAY_PADDING } from '../config.js';
-import { FigureCard } from '../figures/FigureCard.js';
+import {
+  COLUMN_GAP,
+  COLUMN_MIN_WIDTH,
+  COLUMN_PAGE_GAP,
+  OVERLAY_PADDING,
+  PIN_GAP,
+} from '../config.js';
+import { FigureCard, type FigureFocus } from '../figures/FigureCard.js';
+import { RegionZoom } from '../figures/RegionZoom.js';
+import { pinnedLaneWidth } from '../figure-layout.js';
+import { focusedRegions, sectionChain, type FigureRegion } from '../figure-regions.js';
+import { useActiveHeading } from '../hooks/useActiveHeading.js';
 import { EffectsEngine, WAVE_MS, type EffectMode } from '../effects/engine.js';
 import { useOutlineHidden } from '../outline-preference.js';
 import { useStoredFlag, WELCOME_SEEN_KEY } from '../preferences.js';
@@ -15,13 +25,13 @@ import {
   tourRequested,
   type TourStep,
 } from './PretextTour.js';
-import { contentScrollTop } from '../scroll-geometry.js';
+import { contentScrollTop, scrollTopForContentY } from '../scroll-geometry.js';
 import { useContainerWidth, useMediaQuery } from '../hooks.js';
 import { usePretextLayout } from '../hooks/usePretextLayout.js';
 import { useFigureInteractions } from '../hooks/useFigureInteractions.js';
 import { useReadingNavigation } from '../hooks/useReadingNavigation.js';
 import { DEFAULT_TEXT_STYLE } from '../layout/types.js';
-import type { ContentBlock } from '../layout/types.js';
+import type { ContentBlock, HeadingAnchor } from '../layout/types.js';
 import type { FigureInfo } from '../model.js';
 import type { ReadingSettings } from '../reading-settings.js';
 import { useReadingSettings } from '../useReadingSettings.js';
@@ -39,6 +49,10 @@ interface OverlayProps {
   header?: React.ReactNode;
   onClose: () => void;
 }
+
+/** The reading position used for figure focus: a third of the way down the
+ * view, where the reader's eyes usually are, rather than the top edge. */
+const focusMarker = (viewHeight: number) => Math.round(viewHeight * 0.32);
 
 export const PretextOverlay = React.memo(function PretextOverlay({
   blocks,
@@ -142,11 +156,17 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     [activeMode, engine, ensureLoop],
   );
   const [requestedColumnCount, setRequestedColumnCount] = React.useState<ColumnCount>(1);
+  // A pinned figure keeps a lane beside the text; the text gets the rest.
+  const [pinnedIndex, setPinnedIndex] = React.useState<number | null>(null);
+  const laneWidth = pinnedLaneWidth(containerWidth);
+  const pinnedFigure =
+    pinnedIndex != null && laneWidth != null && figures[pinnedIndex] ? pinnedIndex : null;
+  const textWidth = pinnedFigure != null ? containerWidth - laneWidth! - PIN_GAP : containerWidth;
   const maxColumnCount = Math.max(
     1,
     Math.min(
       4,
-      Math.floor((Math.max(0, containerWidth) + COLUMN_GAP) / (COLUMN_MIN_WIDTH + COLUMN_GAP)),
+      Math.floor((Math.max(0, textWidth) + COLUMN_GAP) / (COLUMN_MIN_WIDTH + COLUMN_GAP)),
     ),
   ) as ColumnCount;
   const columnCount = Math.min(requestedColumnCount, maxColumnCount) as ColumnCount;
@@ -171,7 +191,15 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     heightForWidth,
     updateRichBlockHeight,
     updateInlineMetrics,
-  } = usePretextLayout({ blocks, figures, containerWidth, columnCount, readingSettings });
+  } = usePretextLayout({
+    blocks,
+    figures,
+    containerWidth: textWidth,
+    columnCount,
+    readingSettings,
+    pinnedFigure,
+    pinnedWidth: laneWidth,
+  });
   const layoutReady = spans.length > 0 && containerWidth > 0;
   // Load wave: as soon as text is laid out, the words on screen do a Mexican
   // wave. Notebook charts in figure cards (Plotly: over a second of main-thread
@@ -196,7 +224,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     useFigureInteractions({
       figPositions: basePositions,
       setFigureLayout,
-      containerWidth,
+      containerWidth: textWidth,
       columnCount,
       readingKey,
       heightForWidth,
@@ -207,6 +235,42 @@ export const PretextOverlay = React.memo(function PretextOverlay({
     contentRef,
     scrollRef,
   });
+  // Figure focus: the section being read decides which regions are highlighted.
+  const focusHeadingId = useActiveHeading(
+    headingAnchors,
+    scrollRef,
+    contentRef,
+    focusMarker,
+    'none',
+  );
+  const figureFocus = React.useMemo(() => {
+    const chain = sectionChain(headingAnchors, focusHeadingId);
+    return figures.map((fig): FigureFocus | null => {
+      const focus = focusedRegions(fig.regions, chain);
+      return focus ? { title: focus.heading.title, regionIds: focus.regionIds } : null;
+    });
+  }, [figures, headingAnchors, focusHeadingId]);
+  const [zoom, setZoom] = React.useState<{ figureIndex: number; region: FigureRegion } | null>(
+    null,
+  );
+  const openZoom = React.useCallback(
+    (figureIndex: number, region: FigureRegion) => setZoom({ figureIndex, region }),
+    [],
+  );
+  function goToSection(heading: HeadingAnchor) {
+    setZoom(null);
+    const scroll = scrollRef.current;
+    scroll?.scrollTo({
+      top: scrollTopForContentY(scroll, contentRef.current, heading.y - 24),
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+  }
+  function togglePin(index: number) {
+    rememberReadingPosition();
+    // Positions dragged under the previous lane do not apply to the new one.
+    setFigureLayout(null);
+    setPinnedIndex((current) => (current === index ? null : index));
+  }
   /** A click on the floating logo fires its leaves, even over a link. */
   const clickCapture = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -226,11 +290,14 @@ export const PretextOverlay = React.memo(function PretextOverlay({
   React.useEffect(() => {
     // While the tour is open it takes Esc for itself (see PretextTour).
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // Esc first closes an enlarged region, then the reader.
+      if (zoom) setZoom(null);
+      else onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onClose, zoom]);
   function changeColumnCount(nextCount: ColumnCount) {
     rememberReadingPosition();
     // Words move from where they are now to their places in the new columns.
@@ -322,6 +389,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
             transition: box-shadow 150ms ease;
           }
           .pretext-figure-card:hover,
+          .pretext-figure-card[data-pinned],
           .pretext-figure-card[data-active] {
             box-shadow: 0 0 0 1.5px rgba(37,99,235,0.45), 0 8px 24px rgba(15,23,42,0.12);
           }
@@ -345,6 +413,17 @@ export const PretextOverlay = React.memo(function PretextOverlay({
           isDark={isDark}
           steps={tourSteps}
           onClose={() => setTourSteps(null)}
+        />
+      )}
+      {zoom && figures[zoom.figureIndex]?.imageUrl && (
+        <RegionZoom
+          imageUrl={figures[zoom.figureIndex].imageUrl!}
+          figureLabel={figures[zoom.figureIndex].label}
+          region={zoom.region}
+          headings={headingAnchors}
+          isDark={isDark}
+          onGoToSection={goToSection}
+          onClose={() => setZoom(null)}
         />
       )}
       {/* The theme switch stays where the article has it (top right), outside the toolbar. */}
@@ -490,7 +569,7 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   position: 'absolute',
                   top: band.top - COLUMN_PAGE_GAP / 2,
                   left: 0,
-                  width: containerWidth,
+                  width: textWidth,
                   borderTop: index ? '1px solid rgba(148,163,184,0.28)' : undefined,
                   pointerEvents: 'none',
                 }}
@@ -546,15 +625,27 @@ export const PretextOverlay = React.memo(function PretextOverlay({
               onHeightChange={updateRichBlockHeight}
             />
 
-            {figPositions &&
-              figures.map((fig, i) => (
+            {figPositions && pinnedFigure != null && (
+              // The pinned card's lane runs the full length of the text, and the
+              // card sticks to the top of the view inside it while reading.
+              <div
+                className="pretext-pin-lane"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: textWidth + PIN_GAP,
+                  width: laneWidth!,
+                  height: contentHeight,
+                  pointerEvents: 'none',
+                  zIndex: 30,
+                }}
+              >
                 <FigureCard
-                  key={i}
-                  index={i}
-                  fig={fig}
-                  pos={figPositions[i]}
-                  isDragging={draggingIdx === i}
-                  isResizing={resizingIdx === i}
+                  index={pinnedFigure}
+                  fig={figures[pinnedFigure]}
+                  pos={figPositions[pinnedFigure]}
+                  isDragging={false}
+                  isResizing={false}
                   onPointerDown={startDrag}
                   onPointerMove={moveDrag}
                   onPointerUp={endDrag}
@@ -562,12 +653,44 @@ export const PretextOverlay = React.memo(function PretextOverlay({
                   onResizePointerDown={startResize}
                   onCaptionHeightChange={updateCaptionHeight}
                   onNaturalRatioChange={updateOutputRatio}
-                  captionMode={captionModes[i]}
+                  captionMode={captionModes[pinnedFigure]}
                   deferOutput={!outputsReady}
                   onToggleCaption={toggleCaption}
                   isDark={isDark}
+                  pinned
+                  onTogglePin={togglePin}
+                  focus={figureFocus[pinnedFigure]}
+                  onRegionZoom={openZoom}
                 />
-              ))}
+              </div>
+            )}
+            {figPositions &&
+              figures.map((fig, i) =>
+                i === pinnedFigure ? null : (
+                  <FigureCard
+                    key={i}
+                    index={i}
+                    fig={fig}
+                    pos={figPositions[i]}
+                    isDragging={draggingIdx === i}
+                    isResizing={resizingIdx === i}
+                    onPointerDown={startDrag}
+                    onPointerMove={moveDrag}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
+                    onResizePointerDown={startResize}
+                    onCaptionHeightChange={updateCaptionHeight}
+                    onNaturalRatioChange={updateOutputRatio}
+                    captionMode={captionModes[i]}
+                    deferOutput={!outputsReady}
+                    onToggleCaption={toggleCaption}
+                    isDark={isDark}
+                    onTogglePin={laneWidth != null ? togglePin : undefined}
+                    focus={figureFocus[i]}
+                    onRegionZoom={openZoom}
+                  />
+                ),
+              )}
           </div>
           {showOutline && (
             <aside

@@ -261,9 +261,11 @@
       "dependencies": {
         "@myst-theme/providers": "^1.3.1",
         "classnames": "^2.3.2",
+        "js-yaml": "^4.1.0",
         "myst-to-react": "^1.3.1",
       },
       "devDependencies": {
+        "@types/js-yaml": "^4.0.5",
         "vitest": "^0.32.0",
       },
       "peerDependencies": {

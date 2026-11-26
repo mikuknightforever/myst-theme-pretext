@@ -1,6 +1,12 @@
 import * as React from 'react';
 import type { ColumnCount, ColumnLayoutOptions } from '../column-layout.js';
-import { COLUMN_GAP, COLUMN_PAGE_GAP, COLUMN_PAGE_HEIGHT, FIGURE_INLINE_MAX_W } from '../config.js';
+import {
+  COLUMN_GAP,
+  COLUMN_PAGE_GAP,
+  COLUMN_PAGE_HEIGHT,
+  FIGURE_INLINE_MAX_W,
+  PIN_HEADER_H,
+} from '../config.js';
 import {
   buildInitialFigureLayout,
   getFigureNaturalAspectRatio,
@@ -52,12 +58,18 @@ export function usePretextLayout({
   containerWidth,
   columnCount,
   readingSettings,
+  pinnedFigure = null,
+  pinnedWidth = null,
 }: {
   blocks: ContentBlock[];
   figures: FigureInfo[];
+  /** Width available to the text (the reading area minus any pinned lane). */
   containerWidth: number;
   columnCount: ColumnCount;
   readingSettings: ReadingSettings;
+  /** A figure pinned beside the text leaves the flow and takes this width. */
+  pinnedFigure?: number | null;
+  pinnedWidth?: number | null;
 }) {
   const readingKey = readingSettingsKey(readingSettings);
   const textStyle = React.useMemo(() => readingTextStyle(readingSettings), [readingKey]);
@@ -119,6 +131,18 @@ export function usePretextLayout({
       return changed ? { ...block, words } : block;
     });
   }, [blocks, inlineMetrics, richBlockHeights, textStyle]);
+  const pinned = pinnedFigure != null && pinnedWidth ? pinnedFigure : null;
+  // The pinned card is not in the flow, so its anchor reserves no space. One
+  // array per pin keeps the opening-layout cache (keyed by array) effective.
+  const flowBlocks = React.useMemo(
+    () =>
+      pinned == null
+        ? measuredBlocks
+        : measuredBlocks.filter(
+            (block) => block.type !== 'figureAnchor' || block.figureIndex !== pinned,
+          ),
+    [measuredBlocks, pinned],
+  );
   const loadedImageRatios = useImageRatios(figures);
   // Interactive outputs report their rendered aspect ratio instead of an image load.
   const [outputRatios, setOutputRatios] = React.useState<Record<number, number>>(() =>
@@ -178,7 +202,7 @@ export function usePretextLayout({
       return { layout: EMPTY_LAYOUT, positions: null, basePositions: null, captionModes: [] };
     }
     const { positions: initial, layout: opening } = buildInitialFigureLayout(
-      measuredBlocks,
+      flowBlocks,
       figures,
       containerWidth,
       imageRatios,
@@ -187,9 +211,11 @@ export function usePretextLayout({
       captionHeights,
     );
     const candidates = initial.map((position, index) =>
-      manualPositions?.[index] && !manualPositions[index].inline
-        ? manualPositions[index]
-        : position,
+      index === pinned
+        ? { x: 0, y: 0, width: pinnedWidth!, height: position.height, inline: false, pinned: true }
+        : manualPositions?.[index] && !manualPositions[index].inline
+          ? { ...manualPositions[index], pinned: false }
+          : position,
     );
     // Cards the reader resized: height follows width, so the figure fills the
     // card and its caption (or the caption toggle) sits right under it.
@@ -206,10 +232,10 @@ export function usePretextLayout({
         openCaptions.has(index),
       );
       modes.push(card.mode);
-      return { ...position, height: card.height };
+      return { ...position, height: card.height + (position.pinned ? PIN_HEADER_H : 0) };
     });
     const result = layoutWithFigures(
-      measuredBlocks,
+      flowBlocks,
       shown,
       containerWidth,
       textStyle,
@@ -219,7 +245,9 @@ export function usePretextLayout({
     return { ...result, basePositions: result.positions, captionModes: modes };
   }, [
     openCaptions,
-    measuredBlocks,
+    flowBlocks,
+    pinned,
+    pinnedWidth,
     figures,
     containerWidth,
     imageRatios,

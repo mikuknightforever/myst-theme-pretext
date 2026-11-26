@@ -6,6 +6,13 @@ import {
   isStaticFigure,
 } from '../content-detection.js';
 import type { FigureInfo } from '../model.js';
+import {
+  isRegionAnnotation,
+  nodeReferenceNames,
+  parseRegionAnnotation,
+  referenceMatches,
+  type RegionAnnotation,
+} from '../figure-regions.js';
 import type { ContentBlock, StyledWord } from '../layout/types.js';
 import { semanticText, extractWords } from './inline.js';
 
@@ -116,6 +123,11 @@ export function collectArticle(
   const headingIds = new Map<string, number>();
   /** Set while walking the abstract, whose text is drawn in a shaded box. */
   let panel: 'abstract' | undefined;
+  // Region annotations and the names they may use, resolved after the walk so
+  // an annotation may come before or after its figure and sections.
+  const annotations: Array<{ annotation: RegionAnnotation; precedingFigure: number }> = [];
+  const figureNames: string[][] = [];
+  const headingNames: Array<{ id: string; names: string[] }> = [];
   const pushRichBlock = (node: any, estimatedHeight: number) => {
     results.push({
       type: 'richBlock',
@@ -130,13 +142,21 @@ export function collectArticle(
     // A hard line break between blocks (a paragraph's own breaks stay in it)
     // only adds a blank line in the article; in columns it is an empty gap.
     if (node.type === 'break') return;
+    if (isRegionAnnotation(node)) {
+      // Author metadata for figure regions: never part of the reading flow.
+      const annotation = parseRegionAnnotation(String(node.value ?? ''));
+      if (annotation) annotations.push({ annotation, precedingFigure: figures.length - 1 });
+      return;
+    }
     if (isStaticFigure(node, options.draggableSelector)) {
       results.push({ type: 'figureAnchor', figureIndex: figures.length });
+      figureNames.push(nodeReferenceNames(node));
       figures.push({ mdastNode: node, label: figureLabel(node), imageUrl: findImageUrl(node) });
       return;
     }
     if (isInteractiveOutputFigure(node)) {
       results.push({ type: 'figureAnchor', figureIndex: figures.length });
+      figureNames.push(nodeReferenceNames(node));
       figures.push({
         mdastNode: node,
         label: figureLabel(node),
@@ -185,6 +205,10 @@ export function collectArticle(
       const seen = headingIds.get(requestedId) ?? 0;
       headingIds.set(requestedId, seen + 1);
       const headingId = seen === 0 ? requestedId : `${requestedId}-${seen + 1}`;
+      headingNames.push({
+        id: headingId,
+        names: nodeReferenceNames(node, [plainTitle, slugifyHeading(plainTitle), headingId]),
+      });
       const enumWord: StyledWord[] = enumerator
         ? [
             {
@@ -331,7 +355,39 @@ export function collectArticle(
   }
 
   walk(mdast);
+  attachRegions(figures, figureNames, headingNames, annotations);
   return { blocks: results, figures };
+}
+
+/** Give each figure the regions annotated for it, with section references
+ * resolved to outline heading ids. Interactive outputs have no image to mark. */
+function attachRegions(
+  figures: FigureInfo[],
+  figureNames: string[][],
+  headingNames: Array<{ id: string; names: string[] }>,
+  annotations: Array<{ annotation: RegionAnnotation; precedingFigure: number }>,
+) {
+  for (const { annotation, precedingFigure } of annotations) {
+    const index = annotation.figure
+      ? figureNames.findIndex((names) => referenceMatches(annotation.figure!, names))
+      : precedingFigure;
+    const figure = figures[index];
+    if (!figure || figure.interactive || !figure.imageUrl) continue;
+    const regions = annotation.regions.map((region) => ({
+      ...region,
+      sectionIds: [
+        ...new Set(
+          region.sections.flatMap((reference) =>
+            headingNames
+              .filter((heading) => referenceMatches(reference, heading.names))
+              .map((heading) => heading.id)
+              .slice(0, 1),
+          ),
+        ),
+      ],
+    }));
+    figure.regions = [...(figure.regions ?? []), ...regions];
+  }
 }
 
 /** Compatibility helper for layout-only consumers. */

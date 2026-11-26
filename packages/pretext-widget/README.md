@@ -113,6 +113,62 @@ no figure has been moved, the figure-placement pass is reused as the final layou
 Citations, links and math are measured in the DOM once per font size, never for
 line-height or spacing changes.
 
+## Figures that follow the text
+
+System papers show the whole architecture early and then explain one part per
+section. Pretext can keep that figure beside the text and point at the part the
+current section describes.
+
+**Pin.** Every figure card has a **Pin** button (on hover). A pinned figure
+leaves the text flow and takes a lane on the right (about 42% of the reading
+area); the text reflows into the rest, in as many columns as still fit. The card
+sticks to the top of the view while you scroll the whole article. Its header
+shows the figure, the section being read, and **Unpin**, which puts it back in
+the text. Pinned cards are not dragged or resized; unpinned cards still are. Pin
+is not offered when the reading area is too narrow for a lane and a 320 px
+column (phones).
+
+**Regions (authors).** Mark parts of a figure and the sections that describe
+them with an ordinary code block placed anywhere in the article, usually right
+after the figure. It is parsed by stock MyST, so no plugin is needed:
+
+````markdown
+```{code} yaml
+:class: pretext-regions
+figure: fig:overall          # figure label; omit to use the nearest figure above
+regions:
+  - id: map
+    label: Map and corridor costs
+    box: [0.00, 0.00, 0.635, 1.00]   # x0, y0, x1, y1 as fractions of the image
+    sections: [ssec:env-state]       # heading labels, e.g. (ssec:env-state)=
+  - id: actions
+    label: Available actions
+    box: [0.66, 0.866, 0.985, 0.975]
+    sections: [ssec:env-action]
+    description: Optional sentence shown in the enlarged view.
+```
+````
+
+A fenced block with the language `pretext-regions` works the same way. The
+article view never shows these blocks (the theme registers a `code` renderer
+selector that hides them), and they are not part of Pretext's text flow.
+`sections` accepts heading labels, their HTML ids, or heading titles, matched
+without regard to case. Malformed YAML, unknown figures and invalid boxes switch
+the feature off for that annotation or region instead of failing; regions apply
+to static image figures only. Other themes show the block as YAML.
+
+**Highlight.** As the reading position (a third of the way down the view) moves
+into a section, every card with regions linked to it outlines and labels those
+regions and dims the rest of the figure, with a short fade. The most specific
+linked section wins: in a subsection with no regions, the regions of the
+enclosing section are used. Nothing is dimmed when no linked section is being
+read.
+
+**Zoom.** Click a region (or focus it with Tab and press Enter) to open an
+enlarged crop of the original image with its label and a **Go to §** button for
+each linked section, which scrolls the text there. Esc, the close button or a
+click outside closes it. A press that moves the card is a drag, not a click.
+
 ## Theme integration
 
 The package exports `PretextArticle` and `PRETEXT_RENDERERS`. `PretextArticle`
